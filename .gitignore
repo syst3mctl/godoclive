@@ -1,0 +1,38 @@
+# Binaries
+/godoclive
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+
+# Go build cache
+*.out
+
+# Generated docs output
+docs/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Claude Code
+.claude/
+
+# Testdata build artifacts (compiled binaries inside testdata dirs)
+testdata/chi-inline/chi-inline
+testdata/chi-nested/chi-nested
+testdata/mixed-auth/mixed-auth
+
+# Internal dev notes
+AGENT_PROMPTS.md
+IMPLEMENTATION_FLOW.md
+techincal_spec.md
+CLAUDE.md
