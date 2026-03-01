@@ -18,7 +18,7 @@ type GeneratorConfig struct {
 	Format     string // "folder" or "single" (default: "folder")
 	Title      string // Project title displayed in docs
 	Version    string // Project version displayed in docs
-	BaseURL    string // Pre-fill base URL in Try It panels
+	BaseURL    string // Pre-fill base URL in Try It
 	Theme      string // "light" or "dark" (default: "light")
 }
 
@@ -61,6 +61,7 @@ type apiEndpoint struct {
 	Path        string        `json:"path"`
 	Summary     string        `json:"summary"`
 	Tag         string        `json:"tag"`
+	Tags        []string      `json:"tags,omitempty"`
 	HandlerName string        `json:"handlerName"`
 	Deprecated  bool          `json:"deprecated"`
 	Auth        apiAuth       `json:"auth"`
@@ -150,9 +151,10 @@ func buildAPIData(endpoints []model.EndpointDef, cfg GeneratorConfig) apiData {
 		if ae.Unresolved == nil {
 			ae.Unresolved = []string{}
 		}
-		// Use first tag if available.
+		// Preserve all tags; use first as primary for backward compat.
 		if len(ep.Tags) > 0 {
 			ae.Tag = ep.Tags[0]
+			ae.Tags = ep.Tags
 		}
 		ad.Endpoints = append(ad.Endpoints, ae)
 	}

@@ -15,28 +15,28 @@ const (
 	RouterKindUnknown RouterKind = "unknown"
 )
 
-// DetectRouter scans all import paths across all files in the provided packages
+// DetectRouter scans all import paths across all packages in the provided set
 // and determines which router framework is in use. If both chi and gin are
-// present, the one used in more files wins (chi as tiebreaker).
+// present, the one with more imports wins (chi as tiebreaker).
 func DetectRouter(pkgs []*packages.Package) RouterKind {
-	var chiFiles, ginFiles int
+	var chiImports, ginImports int
 
 	packages.Visit(pkgs, func(pkg *packages.Package) bool {
 		for imp := range pkg.Imports {
 			if isChiImport(imp) {
-				chiFiles++
+				chiImports++
 			}
 			if isGinImport(imp) {
-				ginFiles++
+				ginImports++
 			}
 		}
 		return true
 	}, nil)
 
 	switch {
-	case chiFiles == 0 && ginFiles == 0:
+	case chiImports == 0 && ginImports == 0:
 		return RouterKindUnknown
-	case chiFiles >= ginFiles:
+	case chiImports >= ginImports:
 		return RouterKindChi
 	default:
 		return RouterKindGin

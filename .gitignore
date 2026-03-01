@@ -34,5 +34,7 @@ testdata/mixed-auth/mixed-auth
 # Internal dev notes
 AGENT_PROMPTS.md
 IMPLEMENTATION_FLOW.md
-techincal_spec.md
+technical_spec.md
 CLAUDE.md
+brand-review.md
+REVIEW.md

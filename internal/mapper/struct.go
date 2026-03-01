@@ -95,10 +95,6 @@ func fieldDocComment(named *types.Named, field *types.Var, pkg *packages.Package
 
 	fieldPos := field.Pos()
 	for _, file := range pkg.Syntax {
-		ast.Inspect(file, func(n ast.Node) bool {
-			// We only need to search top-level type declarations.
-			return true
-		})
 		for _, decl := range file.Decls {
 			gd, ok := decl.(*ast.GenDecl)
 			if !ok {

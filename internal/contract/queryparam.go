@@ -277,17 +277,38 @@ func isRequiredGuard(stmts []ast.Stmt, stmtIdx int, paramName string) bool {
 }
 
 // assignedVarName extracts the variable name from an assignment/short-var-decl
-// statement that contains a query access call for the given param name.
+// statement, but only if the RHS contains a query access call for the given
+// param name. This prevents false-positive required-guard detection when the
+// preceding statement assigns a different variable.
 func assignedVarName(stmt ast.Stmt, paramName string) string {
-	switch s := stmt.(type) {
-	case *ast.AssignStmt:
-		if len(s.Lhs) >= 1 {
-			if ident, ok := s.Lhs[0].(*ast.Ident); ok {
-				return ident.Name
-			}
-		}
+	assign, ok := stmt.(*ast.AssignStmt)
+	if !ok || len(assign.Lhs) == 0 {
+		return ""
 	}
-	return ""
+	ident, ok := assign.Lhs[0].(*ast.Ident)
+	if !ok {
+		return ""
+	}
+
+	// Verify the RHS actually contains a reference to paramName.
+	found := false
+	for _, rhs := range assign.Rhs {
+		ast.Inspect(rhs, func(n ast.Node) bool {
+			if found {
+				return false
+			}
+			lit, ok := n.(*ast.BasicLit)
+			if ok && strings.Trim(lit.Value, `"`) == paramName {
+				found = true
+				return false
+			}
+			return true
+		})
+	}
+	if !found {
+		return ""
+	}
+	return ident.Name
 }
 
 // blockHasReturn checks if a block statement contains a return statement.

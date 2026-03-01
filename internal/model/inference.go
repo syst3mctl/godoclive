@@ -14,6 +14,8 @@ var irregularPlurals = map[string]string{
 	"child":   "children",
 	"status":  "statuses",
 	"address": "addresses",
+	"index":   "indexes",
+	"process": "processes",
 	"health":  "health",
 	"auth":    "auth",
 	"info":    "info",

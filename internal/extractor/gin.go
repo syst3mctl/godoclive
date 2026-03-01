@@ -43,6 +43,11 @@ func (e *GinExtractor) Extract(pkgs []*packages.Package) ([]RawRoute, error) {
 				if !ok || fn.Body == nil {
 					continue
 				}
+				// Skip test and example functions to avoid extracting
+				// routes from test code.
+				if strings.HasPrefix(fn.Name.Name, "Test") || strings.HasPrefix(fn.Name.Name, "Example") {
+					continue
+				}
 				w.walkBlock(fn.Body.List, "", nil)
 			}
 			routes = append(routes, w.routes...)

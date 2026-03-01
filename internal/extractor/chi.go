@@ -3,7 +3,9 @@ package extractor
 import (
 	"go/ast"
 	"go/token"
+	"go/types"
 	"path"
+	"strconv"
 	"strings"
 
 	"golang.org/x/tools/go/packages"
@@ -34,16 +36,15 @@ func (e *ChiExtractor) Extract(pkgs []*packages.Package) ([]RawRoute, error) {
 		for _, file := range pkg.Syntax {
 			fpath := pkg.Fset.Position(file.Pos()).Filename
 			w := &chiWalker{fset: pkg.Fset, file: fpath}
-			// Only walk entry-point functions (main, init) where the primary
-			// router is set up. Sub-router factory functions (e.g. adminRouter)
-			// that return http.Handler need cross-function Mount tracing,
-			// which is handled in a later analysis phase.
+			// Walk entry-point functions (main, init) and any function that
+			// receives or returns a chi.Router / chi.Mux, since real-world
+			// apps commonly set up routes in setupRoutes() or similar helpers.
 			for _, decl := range file.Decls {
 				fn, ok := decl.(*ast.FuncDecl)
 				if !ok || fn.Body == nil {
 					continue
 				}
-				if fn.Name.Name == "main" || fn.Name.Name == "init" {
+				if fn.Name.Name == "main" || fn.Name.Name == "init" || usesChiRouter(fn, pkg.TypesInfo) {
 					w.walkBlock(fn.Body, "", nil)
 				}
 			}
@@ -52,6 +53,50 @@ func (e *ChiExtractor) Extract(pkgs []*packages.Package) ([]RawRoute, error) {
 	}
 
 	return routes, nil
+}
+
+// usesChiRouter returns true if a function declaration has a parameter or
+// return type involving chi.Router or chi.Mux, indicating it sets up routes.
+func usesChiRouter(fn *ast.FuncDecl, info *types.Info) bool {
+	if fn.Type == nil || info == nil {
+		return false
+	}
+	// Check parameters.
+	if fn.Type.Params != nil {
+		for _, field := range fn.Type.Params.List {
+			if isChiRouterType(field.Type, info) {
+				return true
+			}
+		}
+	}
+	// Check return types.
+	if fn.Type.Results != nil {
+		for _, field := range fn.Type.Results.List {
+			if isChiRouterType(field.Type, info) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isChiRouterType checks if an AST type expression refers to a chi router type.
+func isChiRouterType(expr ast.Expr, info *types.Info) bool {
+	t := info.TypeOf(expr)
+	if t == nil {
+		return false
+	}
+	return isChiType(t)
+}
+
+// isChiType recursively checks if a types.Type is a chi router type.
+func isChiType(t types.Type) bool {
+	// Unwrap pointer types.
+	if ptr, ok := t.(*types.Pointer); ok {
+		t = ptr.Elem()
+	}
+	s := t.String()
+	return strings.Contains(s, "chi.Mux") || strings.Contains(s, "chi.Router")
 }
 
 // isChiPackage returns true if the package imports chi.
@@ -162,14 +207,21 @@ func (w *chiWalker) descendInto(arg ast.Expr, prefix string, parentMW []ast.Expr
 }
 
 // stringLitValue extracts the string value from a basic literal expression.
+// Uses strconv.Unquote to correctly handle all Go string literal forms
+// (double-quoted with escape sequences, raw backtick strings).
 func stringLitValue(expr ast.Expr) string {
 	lit, ok := expr.(*ast.BasicLit)
 	if !ok || lit.Kind != token.STRING {
 		return ""
 	}
-	s := lit.Value
-	if len(s) >= 2 {
-		s = s[1 : len(s)-1]
+	s, err := strconv.Unquote(lit.Value)
+	if err != nil {
+		// Fallback: trim quotes manually.
+		v := lit.Value
+		if len(v) >= 2 {
+			v = v[1 : len(v)-1]
+		}
+		return v
 	}
 	return s
 }

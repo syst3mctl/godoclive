@@ -92,7 +92,7 @@ func init() {
 	generateCmd.Flags().StringVar(&flagFormat, "format", "folder", "Output format: folder | single")
 	generateCmd.Flags().StringVar(&flagServe, "serve", "", "Address to serve after generation, e.g. :8080")
 	generateCmd.Flags().StringVar(&flagTitle, "title", "", "Override project title displayed in docs")
-	generateCmd.Flags().StringVar(&flagBaseURL, "base-url", "", "Pre-fill base URL in Try It panels")
+	generateCmd.Flags().StringVar(&flagBaseURL, "base-url", "", "Pre-fill base URL in Try It")
 	generateCmd.Flags().StringVar(&flagTheme, "theme", "light", "Theme: light | dark")
 
 	// analyze flags
@@ -108,7 +108,7 @@ func init() {
 	watchCmd.Flags().StringVar(&flagFormat, "format", "folder", "Output format: folder | single")
 	watchCmd.Flags().StringVar(&flagServe, "serve", "", "Address to serve after generation, e.g. :8080")
 	watchCmd.Flags().StringVar(&flagTitle, "title", "", "Override project title displayed in docs")
-	watchCmd.Flags().StringVar(&flagBaseURL, "base-url", "", "Pre-fill base URL in Try It panels")
+	watchCmd.Flags().StringVar(&flagBaseURL, "base-url", "", "Pre-fill base URL in Try It")
 	watchCmd.Flags().StringVar(&flagTheme, "theme", "light", "Theme: light | dark")
 
 	rootCmd.AddCommand(analyzeCmd, generateCmd, watchCmd, validateCmd)

@@ -51,7 +51,7 @@ func WithVersion(version string) Option {
 	return func(o *Options) { o.Version = version }
 }
 
-// WithBaseURL sets the pre-filled base URL in Try It panels.
+// WithBaseURL sets the pre-filled base URL in Try It.
 func WithBaseURL(url string) Option {
 	return func(o *Options) { o.BaseURL = url }
 }

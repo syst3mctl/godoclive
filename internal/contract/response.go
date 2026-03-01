@@ -246,8 +246,10 @@ func pairEvents(events []responseEvent, returns []token.Pos, info *types.Info) [
 		return nil
 	}
 
-	// Add a sentinel return at the end (for the final implicit return).
-	returns = append(returns, token.Pos(^uint(0)>>1)) // max Pos
+	// Add a sentinel return at the end representing the implicit return at the
+	// end of the function. We use the maximum possible token.Pos value so that
+	// any events after the last real return statement are captured in a final branch.
+	returns = append(returns, token.Pos(^uint(0)>>1))
 
 	var responses []model.ResponseDef
 	seen := make(map[int]bool)

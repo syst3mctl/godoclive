@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"strings"
 
 	"github.com/syst3mctl/godoclive/internal/auth"
 	"github.com/syst3mctl/godoclive/internal/config"
@@ -153,6 +154,10 @@ func processRoute(route extractor.RawRoute, pkgs []*packages.Package) (model.End
 	summary := model.InferSummary(handlerName)
 	tags := []string{model.InferTag(handlerName)}
 	if tags[0] == "" {
+		// Fall back to the first meaningful path segment as tag.
+		tags[0] = tagFromPath(route.Path)
+	}
+	if tags[0] == "" {
 		tags = nil
 	}
 
@@ -271,6 +276,22 @@ func lookupType(name, pkgPath string, pkgs []*packages.Package) types.Type {
 		}
 	}
 	return nil
+}
+
+// tagFromPath extracts the first meaningful path segment as a fallback tag.
+// e.g. "/api/users/{id}" → "users", "/health" → "health".
+func tagFromPath(path string) string {
+	segments := strings.Split(strings.Trim(path, "/"), "/")
+	for _, seg := range segments {
+		if seg == "" || seg == "api" || seg == "v1" || seg == "v2" || seg == "v3" {
+			continue
+		}
+		if strings.HasPrefix(seg, "{") {
+			continue
+		}
+		return seg
+	}
+	return ""
 }
 
 // posToFileLine converts a token.Pos to file path and line number.
