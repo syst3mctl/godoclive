@@ -40,10 +40,10 @@ CLAUDE.md
 brand-review.md
 REVIEW.md
 STDLIB_HTTP_REVIEW.md
-GIN_E2E_TEST_PROMPT.md
 STDLIB_E2E_TEST_PROMPT.md
+GIN_E2E_TEST_PROMPT.md
 
-# testing project
-stdlib-e2e-test/
-gin-e2e-test/
-gin-e2e-docs/
+# test folders
+/gin-e2e-test
+/stdlib-e2e-test
+/gin-e2e-docs
