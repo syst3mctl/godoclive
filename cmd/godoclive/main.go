@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"bufio"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -338,18 +339,19 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 }
 
 // buildGeneratorConfig creates a GeneratorConfig merging CLI flags with
-// .godoclive.yaml values. CLI flags take precedence.
+// .env and .godoclive.yaml values. Precedence: CLI flag > .env > yaml > default.
 func buildGeneratorConfig(pattern string) generator.GeneratorConfig {
 	dir, _ := splitDirPattern(pattern)
 	absDir, _ := filepath.Abs(dir)
 	cfg, _ := config.LoadConfig(absDir)
+	env := loadDotEnv(absDir)
 
 	return generator.GeneratorConfig{
 		OutputPath: flagOutput,
 		Format:     flagFormat,
 		Title:      coalesce(flagTitle, cfgStr(cfg, func(c *config.Config) string { return c.Title })),
 		Version:    cfgStr(cfg, func(c *config.Config) string { return c.Version }),
-		BaseURL:    coalesce(flagBaseURL, cfgStr(cfg, func(c *config.Config) string { return c.BaseURL })),
+		BaseURL:    coalesce(flagBaseURL, env["API_URL"], cfgStr(cfg, func(c *config.Config) string { return c.BaseURL })),
 		Theme:      coalesce(flagTheme, cfgStr(cfg, func(c *config.Config) string { return c.Theme }), "light"),
 	}
 }
@@ -368,6 +370,39 @@ func cfgStr(cfg *config.Config, fn func(*config.Config) string) string {
 		return ""
 	}
 	return fn(cfg)
+}
+
+// loadDotEnv reads a .env file from the given directory and returns a map of
+// key=value pairs. Returns an empty map if the file doesn't exist.
+func loadDotEnv(dir string) map[string]string {
+	result := make(map[string]string)
+	f, err := os.Open(filepath.Join(dir, ".env"))
+	if err != nil {
+		return result
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		// Strip surrounding quotes.
+		if len(value) >= 2 &&
+			((value[0] == '"' && value[len(value)-1] == '"') ||
+				(value[0] == '\'' && value[len(value)-1] == '\'')) {
+			value = value[1 : len(value)-1]
+		}
+		result[key] = value
+	}
+	return result
 }
 
 // runWatch implements the watch command.

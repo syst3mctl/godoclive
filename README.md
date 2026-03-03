@@ -16,7 +16,7 @@
 ---
 
 > **Zero annotations. Zero code changes. Just your existing Go handlers.**
-> GoDoc Live statically analyzes your chi and gin routers, extracts every route, parameter, request body, and response — then generates interactive API documentation.
+> GoDoc Live statically analyzes your chi, gin, and net/http stdlib routers, extracts every route, parameter, request body, and response — then generates interactive API documentation.
 
 ## Installation
 
@@ -63,8 +63,9 @@ GoDoc Live uses `go/ast` and `go/types` to extract everything automatically:
 
 | Router | Status | Features |
 |--------|--------|----------|
-| **chi** (`go-chi/chi/v5`) | Phase 1 | Route, Group, Mount, inline handlers |
-| **gin** (`gin-gonic/gin`) | Phase 1 | Groups, Use chains, ShouldBindJSON |
+| **chi** (`go-chi/chi/v5`) | Done | Route, Group, Mount, inline handlers |
+| **gin** (`gin-gonic/gin`) | Done | Groups, Use chains, ShouldBindJSON |
+| **net/http** (Go 1.22+ stdlib) | Done | `"METHOD /path"` patterns, `r.PathValue()`, `http.Handler` |
 | gorilla/mux | Planned | — |
 | echo | Planned | — |
 | fiber | Planned | — |
@@ -131,6 +132,18 @@ godoclive validate --json ./...
 | `--verbose` | `false` | Show full unresolved list per endpoint |
 
 ## Configuration
+
+### `.env` file
+
+Create a `.env` file in your project root to set the API base URL for the Try It panel:
+
+```env
+API_URL="http://localhost:8080"
+```
+
+Precedence: `--base-url` CLI flag > `.env` `API_URL` > `.godoclive.yaml` `base_url` > default.
+
+### `.godoclive.yaml`
 
 Create an optional `.godoclive.yaml` in your project root:
 
@@ -212,21 +225,21 @@ err = godoclive.Generate(endpoints,
 
 ## Accuracy (Phase 1)
 
-Measured across 9 testdata projects with 37 endpoints:
+Measured across 11 testdata projects with 42 endpoints:
 
 | Feature | Accuracy | Target |
 |---------|----------|--------|
-| Route detection | **100%** (37 endpoints) | 95% |
-| Path params | **100%** (37 endpoints) | 99% |
-| Query params | **100%** (37 endpoints) | 85% |
-| Response status codes | **100%** (37 endpoints) | 85% |
-| Auth detection | **100%** (37 endpoints) | 87% |
+| Route detection | **100%** (42 endpoints) | 95% |
+| Path params | **100%** (42 endpoints) | 99% |
+| Query params | **100%** (42 endpoints) | 85% |
+| Response status codes | **100%** (42 endpoints) | 85% |
+| Auth detection | **100%** (42 endpoints) | 87% |
 
 ## Roadmap
 
 | Phase | Scope | Status |
 |-------|-------|--------|
-| **1** | chi + gin, full contract extraction, helper tracing, interactive docs UI | Done |
+| **1** | chi + gin + net/http stdlib, full contract extraction, helper tracing, interactive docs UI | Done |
 | **2** | gorilla/mux, echo, fiber, OpenAPI 3.1 export | Planned |
 | **3** | VS Code extension, GitHub Action integration | Planned |
 | **4** | Multi-service gateway view, API version diff | Planned |

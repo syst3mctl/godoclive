@@ -10,7 +10,7 @@
   var SAMPLE_DATA = {
     projectName: 'Pet Store API',
     version: 'v2.1.0',
-    baseUrl: 'https://api.petstore.example.com',
+    baseUrl: 'http://localhost:8080',
     endpoints: [
       {
         method: 'POST',
@@ -348,9 +348,15 @@
     return null;
   }
 
-  // Base URL (persisted in localStorage)
+  // Base URL — injected data.baseUrl always wins over stale localStorage.
   var BASE_URL_KEY = 'gdl-base-url';
-  var baseUrl = localStorage.getItem(BASE_URL_KEY) || data.baseUrl || 'https://localhost:8080';
+  var baseUrl;
+  if (data.baseUrl) {
+    baseUrl = data.baseUrl;
+    localStorage.setItem(BASE_URL_KEY, baseUrl);
+  } else {
+    baseUrl = localStorage.getItem(BASE_URL_KEY) || 'http://localhost:8080';
+  }
 
   // ============================================================
   // Helpers

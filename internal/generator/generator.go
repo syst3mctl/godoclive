@@ -363,9 +363,15 @@ func generateSingle(outputDir string, apiJSON []byte, theme string) error {
 	return nil
 }
 
-// injectAPIData inserts a <script> tag with window.API_DATA before the closing </body>.
+// injectAPIData inserts a <script> tag with window.API_DATA before app.js so
+// the data is available when app.js executes.
 func injectAPIData(html string, apiJSON []byte) string {
 	tag := "<script>window.API_DATA = " + string(apiJSON) + ";</script>\n"
+	// Insert before app.js so data is available when app.js runs.
+	if strings.Contains(html, `<script src="app.js">`) {
+		return strings.Replace(html, `<script src="app.js">`, tag+`<script src="app.js">`, 1)
+	}
+	// Fallback for single-file mode (no external app.js).
 	return strings.Replace(html, "</body>", tag+"</body>", 1)
 }
 
