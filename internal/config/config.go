@@ -11,14 +11,42 @@ import (
 
 // Config represents the optional .godoclive.yaml configuration file.
 type Config struct {
-	Title           string     `yaml:"title"`
-	Version         string     `yaml:"version"`
-	BaseURL         string     `yaml:"base_url"`
-	Theme           string     `yaml:"theme"`
-	Overrides       []Override `yaml:"overrides"`
-	Exclude         []string   `yaml:"exclude"`
-	Auth            AuthConfig `yaml:"auth"`
-	ResponseHelpers []string   `yaml:"response_helpers"`
+	Title           string        `yaml:"title"`
+	Version         string        `yaml:"version"`
+	BaseURL         string        `yaml:"base_url"`
+	Theme           string        `yaml:"theme"`
+	Overrides       []Override    `yaml:"overrides"`
+	Exclude         []string      `yaml:"exclude"`
+	Auth            AuthConfig    `yaml:"auth"`
+	ResponseHelpers []string      `yaml:"response_helpers"`
+	OpenAPI         OpenAPIConfig `yaml:"openapi"`
+}
+
+// OpenAPIConfig holds OpenAPI-specific settings from the config file.
+type OpenAPIConfig struct {
+	Description string         `yaml:"description"`
+	Contact     ContactConfig  `yaml:"contact"`
+	License     LicenseConfig  `yaml:"license"`
+	Servers     []ServerConfig `yaml:"servers"`
+}
+
+// ContactConfig holds contact information for the OpenAPI spec.
+type ContactConfig struct {
+	Name  string `yaml:"name"`
+	URL   string `yaml:"url"`
+	Email string `yaml:"email"`
+}
+
+// LicenseConfig holds license information for the OpenAPI spec.
+type LicenseConfig struct {
+	Name string `yaml:"name"`
+	URL  string `yaml:"url"`
+}
+
+// ServerConfig holds a server entry for the OpenAPI spec.
+type ServerConfig struct {
+	URL         string `yaml:"url"`
+	Description string `yaml:"description"`
 }
 
 // Override allows users to supplement or override static analysis results.

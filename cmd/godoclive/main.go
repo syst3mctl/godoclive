@@ -18,6 +18,7 @@ import (
 	"github.com/syst3mctl/godoclive/internal/config"
 	"github.com/syst3mctl/godoclive/internal/generator"
 	"github.com/syst3mctl/godoclive/internal/model"
+	"github.com/syst3mctl/godoclive/internal/openapi"
 	"github.com/syst3mctl/godoclive/internal/pipeline"
 )
 
@@ -59,6 +60,15 @@ var (
 	flagValidateVerbose bool
 )
 
+// openapi flags
+var (
+	flagOpenAPIOutput string
+	flagOpenAPIFormat string
+	flagOpenAPITitle  string
+	flagOpenAPIServer string
+	flagGenerateOpenAPI string
+)
+
 var analyzeCmd = &cobra.Command{
 	Use:   "analyze [packages]",
 	Short: "Run analysis only — print contract summary to stdout",
@@ -87,6 +97,13 @@ var validateCmd = &cobra.Command{
 	RunE:  runValidate,
 }
 
+var openapiCmd = &cobra.Command{
+	Use:   "openapi [packages]",
+	Short: "Generate OpenAPI 3.1.0 specification from analyzed endpoints",
+	Args:  cobra.MinimumNArgs(1),
+	RunE:  runOpenAPI,
+}
+
 func init() {
 	// generate flags
 	generateCmd.Flags().StringVar(&flagOutput, "output", "./docs", "Output path")
@@ -104,6 +121,9 @@ func init() {
 	validateCmd.Flags().BoolVar(&flagValidateJSON, "json", false, "Output as JSON")
 	validateCmd.Flags().BoolVar(&flagValidateVerbose, "verbose", false, "Show full Unresolved list per endpoint")
 
+	// generate --openapi flag
+	generateCmd.Flags().StringVar(&flagGenerateOpenAPI, "openapi", "", "Also generate OpenAPI spec at this path")
+
 	// watch flags (same as generate)
 	watchCmd.Flags().StringVar(&flagOutput, "output", "./docs", "Output path")
 	watchCmd.Flags().StringVar(&flagFormat, "format", "folder", "Output format: folder | single")
@@ -112,7 +132,13 @@ func init() {
 	watchCmd.Flags().StringVar(&flagBaseURL, "base-url", "", "Pre-fill base URL in Try It")
 	watchCmd.Flags().StringVar(&flagTheme, "theme", "", "Theme: light | dark (default: light)")
 
-	rootCmd.AddCommand(analyzeCmd, generateCmd, watchCmd, validateCmd)
+	// openapi flags
+	openapiCmd.Flags().StringVar(&flagOpenAPIOutput, "output", "./openapi.json", "Output file path (.json or .yaml)")
+	openapiCmd.Flags().StringVar(&flagOpenAPIFormat, "format", "", "Output format: json | yaml (inferred from extension if omitted)")
+	openapiCmd.Flags().StringVar(&flagOpenAPITitle, "title", "", "API title")
+	openapiCmd.Flags().StringVar(&flagOpenAPIServer, "server", "", "Server URL to include in spec")
+
+	rootCmd.AddCommand(analyzeCmd, generateCmd, watchCmd, validateCmd, openapiCmd)
 }
 
 // runAnalyze implements the analyze command.
@@ -332,10 +358,98 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	absOut, _ := filepath.Abs(flagOutput)
 	fmt.Printf("Documentation generated at %s/\n", absOut)
 
+	// Optionally generate OpenAPI spec alongside HTML.
+	if flagGenerateOpenAPI != "" {
+		if err := generateOpenAPISpec(endpoints, args[0], flagGenerateOpenAPI); err != nil {
+			return err
+		}
+	}
+
 	if flagServe != "" {
 		return generator.Serve(flagOutput, flagServe)
 	}
 	return nil
+}
+
+// runOpenAPI implements the openapi command.
+func runOpenAPI(cmd *cobra.Command, args []string) error {
+	endpoints, err := runPipeline(args[0])
+	if err != nil {
+		return err
+	}
+
+	output := flagOpenAPIOutput
+	return generateOpenAPISpec(endpoints, args[0], output)
+}
+
+// generateOpenAPISpec generates an OpenAPI spec file from endpoints.
+func generateOpenAPISpec(endpoints []model.EndpointDef, pattern, output string) error {
+	dir, _ := splitDirPattern(pattern)
+	absDir, _ := filepath.Abs(dir)
+	cfg, _ := config.LoadConfig(absDir)
+
+	oapiCfg := buildOpenAPIConfig(cfg)
+
+	doc := openapi.Generate(endpoints, oapiCfg)
+
+	var format openapi.OutputFormat
+	if flagOpenAPIFormat != "" {
+		format = openapi.OutputFormat(flagOpenAPIFormat)
+	}
+
+	if err := openapi.Write(doc, openapi.WriteConfig{
+		OutputPath: output,
+		Format:     format,
+		Indent:     true,
+	}); err != nil {
+		return err
+	}
+
+	absPath, _ := filepath.Abs(output)
+	fmt.Printf("OpenAPI spec generated at %s\n", absPath)
+	return nil
+}
+
+// buildOpenAPIConfig creates an openapi.Config from CLI flags and .godoclive.yaml.
+func buildOpenAPIConfig(cfg *config.Config) openapi.Config {
+	oapiCfg := openapi.Config{
+		Title:   coalesce(flagOpenAPITitle, flagTitle, cfgStr(cfg, func(c *config.Config) string { return c.Title })),
+		Version: cfgStr(cfg, func(c *config.Config) string { return c.Version }),
+	}
+
+	if flagOpenAPIServer != "" {
+		oapiCfg.Servers = []openapi.Server{{URL: flagOpenAPIServer}}
+	}
+
+	// Apply .godoclive.yaml openapi section if available.
+	if cfg != nil {
+		if cfg.OpenAPI.Description != "" {
+			oapiCfg.Description = cfg.OpenAPI.Description
+		}
+		if cfg.OpenAPI.Contact.Name != "" || cfg.OpenAPI.Contact.Email != "" {
+			oapiCfg.Contact = &openapi.Contact{
+				Name:  cfg.OpenAPI.Contact.Name,
+				URL:   cfg.OpenAPI.Contact.URL,
+				Email: cfg.OpenAPI.Contact.Email,
+			}
+		}
+		if cfg.OpenAPI.License.Name != "" {
+			oapiCfg.License = &openapi.License{
+				Name: cfg.OpenAPI.License.Name,
+				URL:  cfg.OpenAPI.License.URL,
+			}
+		}
+		if len(cfg.OpenAPI.Servers) > 0 && len(oapiCfg.Servers) == 0 {
+			for _, s := range cfg.OpenAPI.Servers {
+				oapiCfg.Servers = append(oapiCfg.Servers, openapi.Server{
+					URL:         s.URL,
+					Description: s.Description,
+				})
+			}
+		}
+	}
+
+	return oapiCfg
 }
 
 // buildGeneratorConfig creates a GeneratorConfig merging CLI flags with

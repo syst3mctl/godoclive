@@ -17,7 +17,7 @@
 ---
 
 > **Zero annotations. Zero code changes. Just your existing Go handlers.**
-> GoDoc Live statically analyzes your chi, gin, gorilla/mux, and net/http stdlib routers, extracts every route, parameter, request body, and response — then generates interactive API documentation.
+> GoDoc Live statically analyzes your chi, gin, gorilla/mux, and net/http stdlib routers, extracts every route, parameter, request body, and response — then generates interactive API documentation and OpenAPI 3.1.0 specs.
 
 ## Installation
 
@@ -97,6 +97,7 @@ godoclive generate ./...
 godoclive generate --output ./api-docs --theme dark ./...
 godoclive generate --format single ./...         # Single self-contained HTML (~300KB)
 godoclive generate --serve :8080 ./...           # Generate + serve
+godoclive generate --openapi ./openapi.json ./... # Also emit OpenAPI 3.1.0 spec
 ```
 
 | Flag | Default | Description |
@@ -107,6 +108,25 @@ godoclive generate --serve :8080 ./...           # Generate + serve
 | `--base-url` | — | Pre-fill base URL in Try It |
 | `--theme` | `light` | `light` or `dark` |
 | `--serve` | — | Start HTTP server after generation (e.g., `:8080`) |
+| `--openapi` | — | Also generate an OpenAPI 3.1.0 spec at the given path (`.json` or `.yaml`) |
+
+### `godoclive openapi [packages]`
+
+Generate an OpenAPI 3.1.0 specification from analyzed endpoints (without the HTML docs).
+
+```bash
+godoclive openapi ./...                          # Outputs ./openapi.json
+godoclive openapi --output ./api.yaml ./...      # YAML format (inferred from extension)
+godoclive openapi --format yaml ./...            # Explicit format override
+godoclive openapi --server https://api.example.com ./...
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--output` | `./openapi.json` | Output file path (`.json` or `.yaml`) |
+| `--format` | auto | `json` or `yaml` — inferred from file extension if omitted |
+| `--title` | auto | API title in the spec `info` block |
+| `--server` | — | Server URL to include in the `servers` array |
 
 ### `godoclive watch [packages]`
 
@@ -175,6 +195,22 @@ overrides:
 auth:
   header: "Authorization"
   scheme: "bearer"
+
+# OpenAPI 3.1.0 spec metadata
+openapi:
+  description: "Full description of the API."
+  contact:
+    name: "API Support"
+    url: "https://example.com/support"
+    email: "support@example.com"
+  license:
+    name: "MIT"
+    url: "https://opensource.org/licenses/MIT"
+  servers:
+    - url: "https://api.example.com"
+      description: "Production"
+    - url: "https://staging.example.com"
+      description: "Staging"
 ```
 
 > **Zero configuration is always valid** — the tool produces useful output without any config file.
@@ -216,11 +252,23 @@ endpoints, err := godoclive.Analyze(".", "./...",
     godoclive.WithTitle("My API"),
 )
 
-// Generate docs
+// Generate HTML docs
 err = godoclive.Generate(endpoints,
     godoclive.WithOutput("./api-docs"),
     godoclive.WithFormat("single"),
     godoclive.WithTheme("dark"),
+)
+
+// Generate HTML docs + OpenAPI spec in one call
+err = godoclive.Generate(endpoints,
+    godoclive.WithOutput("./api-docs"),
+    godoclive.WithOpenAPIOutput("./openapi.json"),
+)
+
+// Generate only an OpenAPI 3.1.0 spec (returns JSON bytes)
+specBytes, err := godoclive.GenerateOpenAPI(endpoints,
+    godoclive.WithTitle("My API"),
+    godoclive.WithVersion("v2.1.0"),
 )
 ```
 
@@ -241,7 +289,8 @@ Measured across 12 testdata projects with 50 endpoints:
 | Phase | Scope | Status |
 |-------|-------|--------|
 | **1** | chi + gin + net/http stdlib + gorilla/mux, full contract extraction, helper tracing, interactive docs UI | Done |
-| **2** | echo, fiber, OpenAPI 3.1 export | Planned |
+| **2** | OpenAPI 3.1.0 export (`openapi` command + `--openapi` flag) | Done |
+| **2b** | echo, fiber | Planned |
 | **3** | VS Code extension, GitHub Action integration | Planned |
 | **4** | Multi-service gateway view, API version diff | Planned |
 

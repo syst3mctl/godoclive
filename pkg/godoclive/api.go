@@ -6,6 +6,7 @@ import (
 	"github.com/syst3mctl/godoclive/internal/config"
 	"github.com/syst3mctl/godoclive/internal/generator"
 	"github.com/syst3mctl/godoclive/internal/model"
+	"github.com/syst3mctl/godoclive/internal/openapi"
 	"github.com/syst3mctl/godoclive/internal/pipeline"
 )
 
@@ -14,13 +15,14 @@ type EndpointDef = model.EndpointDef
 
 // Options configures the behavior of Analyze and Generate.
 type Options struct {
-	Config     *config.Config
-	OutputPath string
-	Format     string // "folder" or "single"
-	Title      string
-	Version    string
-	BaseURL    string
-	Theme      string // "light" or "dark"
+	Config        *config.Config
+	OutputPath    string
+	Format        string // "folder" or "single"
+	Title         string
+	Version       string
+	BaseURL       string
+	Theme         string // "light" or "dark"
+	OpenAPIOutput string // path for OpenAPI spec output
 }
 
 // Option is a functional option for configuring Analyze and Generate.
@@ -61,6 +63,11 @@ func WithTheme(theme string) Option {
 	return func(o *Options) { o.Theme = theme }
 }
 
+// WithOpenAPIOutput sets the output path for an OpenAPI spec file.
+func WithOpenAPIOutput(path string) Option {
+	return func(o *Options) { o.OpenAPIOutput = path }
+}
+
 // Analyze runs the analysis pipeline on the given Go packages and returns
 // the extracted endpoint contracts. The pattern should be a directory path
 // with an optional package pattern suffix (e.g. "./..." or "./cmd/...").
@@ -93,12 +100,46 @@ func Generate(endpoints []EndpointDef, opts ...Option) error {
 		opt(o)
 	}
 
-	return generator.Generate(endpoints, generator.GeneratorConfig{
+	if err := generator.Generate(endpoints, generator.GeneratorConfig{
 		OutputPath: o.OutputPath,
 		Format:     o.Format,
 		Title:      o.Title,
 		Version:    o.Version,
 		BaseURL:    o.BaseURL,
 		Theme:      o.Theme,
+	}); err != nil {
+		return err
+	}
+
+	// Also write OpenAPI spec if configured.
+	if o.OpenAPIOutput != "" {
+		doc := openapi.Generate(endpoints, openapi.Config{
+			Title:   o.Title,
+			Version: o.Version,
+		})
+		if err := openapi.Write(doc, openapi.WriteConfig{
+			OutputPath: o.OpenAPIOutput,
+			Indent:     true,
+		}); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// GenerateOpenAPI generates an OpenAPI 3.1.0 spec from analyzed endpoints and
+// returns the JSON bytes. Options Title and Version are used for the spec info.
+func GenerateOpenAPI(endpoints []EndpointDef, opts ...Option) ([]byte, error) {
+	o := &Options{}
+	for _, opt := range opts {
+		opt(o)
+	}
+
+	doc := openapi.Generate(endpoints, openapi.Config{
+		Title:   o.Title,
+		Version: o.Version,
 	})
+
+	return openapi.Marshal(doc)
 }

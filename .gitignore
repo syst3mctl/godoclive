@@ -43,6 +43,7 @@ STDLIB_HTTP_REVIEW.md
 STDLIB_E2E_TEST_PROMPT.md
 GIN_E2E_TEST_PROMPT.md
 GORILLA_MUX_AGENT_PROMPT.md
+OPENAPI_AGENT_PROMPT.md
 
 # test folders
 /gin-e2e-test
@@ -50,3 +51,6 @@ GORILLA_MUX_AGENT_PROMPT.md
 /gin-e2e-docs
 /gorilla-e2e-test
 /gorilla-e2e-docs
+
+# for agent
+/pr-description
