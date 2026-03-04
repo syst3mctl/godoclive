@@ -33,6 +33,14 @@ jobs:
       - name: Run vet
         run: go vet ./...
 
+      - name: "Generate coverage"
+        run: go test -coverprofile=coverage.txt
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }} 
+
   lint:
     runs-on: ubuntu-latest
     steps:
