@@ -28,6 +28,10 @@ func RunPipeline(dir, pattern string, cfg *config.Config) ([]model.EndpointDef, 
 		return nil, fmt.Errorf("loading packages: %w", err)
 	}
 
+	// 1b. Build a type index once so per-route lookups are O(1) instead of
+	// O(N×deps) via repeated packages.Visit calls.
+	typeIdx := buildTypeIndex(pkgs)
+
 	// 2. Detect router.
 	routerKind := detector.DetectRouter(pkgs)
 	if routerKind == detector.RouterKindUnknown {
@@ -55,7 +59,7 @@ func RunPipeline(dir, pattern string, cfg *config.Config) ([]model.EndpointDef, 
 	// 4-8. Process each route into a full EndpointDef.
 	var endpoints []model.EndpointDef
 	for _, route := range routes {
-		ep, err := processRoute(route, pkgs)
+		ep, err := processRoute(route, pkgs, typeIdx)
 		if err != nil {
 			// Record the error as unresolved rather than failing the whole pipeline.
 			endpoints = append(endpoints, model.EndpointDef{
@@ -80,7 +84,7 @@ func RunPipeline(dir, pattern string, cfg *config.Config) ([]model.EndpointDef, 
 }
 
 // processRoute converts a single RawRoute into a fully-resolved EndpointDef.
-func processRoute(route extractor.RawRoute, pkgs []*packages.Package) (model.EndpointDef, error) {
+func processRoute(route extractor.RawRoute, pkgs []*packages.Package, typeIdx map[string]map[string]types.Type) (model.EndpointDef, error) {
 	// Find the TypesInfo from the package that contains this route's file.
 	info := findInfoForRoute(route, pkgs)
 	if info == nil {
@@ -148,14 +152,14 @@ func processRoute(route extractor.RawRoute, pkgs []*packages.Package) (model.End
 	// 6. Map body types using the struct mapper.
 	pkg := findPackageForRoute(route, pkgs)
 	if req.Body != nil {
-		mapped := resolveAndMapType(req.Body, info, pkg, pkgs)
+		mapped := resolveAndMapType(req.Body, info, pkg, typeIdx)
 		if mapped != nil {
 			req.Body = mapped
 		}
 	}
 	for i, resp := range responses {
 		if resp.Body != nil {
-			mapped := resolveAndMapType(resp.Body, info, pkg, pkgs)
+			mapped := resolveAndMapType(resp.Body, info, pkg, typeIdx)
 			if mapped != nil {
 				responses[i].Body = mapped
 			}
@@ -237,13 +241,13 @@ func findPackageForRoute(route extractor.RawRoute, pkgs []*packages.Package) *pa
 }
 
 // resolveAndMapType looks up the types.Type for a TypeDef reference and maps it fully.
-func resolveAndMapType(td *model.TypeDef, info *types.Info, pkg *packages.Package, pkgs []*packages.Package) *model.TypeDef {
+// typeIdx is the pre-built index from buildTypeIndex for O(1) lookups.
+func resolveAndMapType(td *model.TypeDef, info *types.Info, pkg *packages.Package, typeIdx map[string]map[string]types.Type) *model.TypeDef {
 	if td == nil || pkg == nil {
 		return nil
 	}
 
-	// Try to find the type by name in the package scope.
-	t := lookupType(td.Name, td.Package, pkgs)
+	t := lookupType(td.Name, td.Package, typeIdx)
 	if t == nil {
 		return nil
 	}
@@ -252,43 +256,43 @@ func resolveAndMapType(td *model.TypeDef, info *types.Info, pkg *packages.Packag
 	return &mapped
 }
 
-// lookupType finds a types.Type by name and package path across all loaded packages.
-func lookupType(name, pkgPath string, pkgs []*packages.Package) types.Type {
-	for _, pkg := range pkgs {
-		if pkg.Types == nil {
-			continue
-		}
-		// Match by package path if we have one.
-		if pkgPath != "" && pkg.Types.Path() != pkgPath {
-			continue
-		}
-		obj := pkg.Types.Scope().Lookup(name)
-		if obj != nil {
-			return obj.Type()
-		}
-	}
-	// If pkgPath was set and didn't match root packages, search deps.
-	var found types.Type
-	for _, pkg := range pkgs {
-		packages.Visit([]*packages.Package{pkg}, func(p *packages.Package) bool {
-			if found != nil {
-				return false
-			}
-			if p.Types == nil {
-				return true
-			}
-			if pkgPath != "" && p.Types.Path() != pkgPath {
-				return true
-			}
-			obj := p.Types.Scope().Lookup(name)
-			if obj != nil {
-				found = obj.Type()
-				return false
-			}
+// buildTypeIndex builds a two-level map (pkgPath → typeName → types.Type) by
+// visiting every package in the graph exactly once. Callers can then resolve
+// any named type in O(1) rather than re-traversing the full package graph.
+func buildTypeIndex(pkgs []*packages.Package) map[string]map[string]types.Type {
+	idx := make(map[string]map[string]types.Type)
+	packages.Visit(pkgs, func(p *packages.Package) bool {
+		if p.Types == nil {
 			return true
-		}, nil)
-		if found != nil {
-			return found
+		}
+		path := p.Types.Path()
+		if _, exists := idx[path]; exists {
+			return true // already indexed (diamond dependency)
+		}
+		scope := p.Types.Scope()
+		names := scope.Names()
+		m := make(map[string]types.Type, len(names))
+		for _, name := range names {
+			m[name] = scope.Lookup(name).Type()
+		}
+		idx[path] = m
+		return true
+	}, nil)
+	return idx
+}
+
+// lookupType finds a types.Type by name and package path using the pre-built index.
+func lookupType(name, pkgPath string, idx map[string]map[string]types.Type) types.Type {
+	if pkgPath != "" {
+		if m, ok := idx[pkgPath]; ok {
+			return m[name] // may be nil if name not in that package
+		}
+		// pkgPath not found — fall through to name-only scan.
+	}
+	// Scan all packages when no pkgPath is given (or pkgPath wasn't indexed).
+	for _, m := range idx {
+		if t, ok := m[name]; ok {
+			return t
 		}
 	}
 	return nil

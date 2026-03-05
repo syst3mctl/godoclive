@@ -284,6 +284,33 @@ Measured across 12 testdata projects with 50 endpoints:
 | Response status codes | **100%** (50 endpoints) | 85% |
 | Auth detection | **100%** (50 endpoints) | 87% |
 
+## Performance
+
+Benchmarks run on Apple M2 Pro, Go 1.25, using the testdata projects included in the repository.
+Run them yourself: `go test -bench=. -benchmem ./internal/pipeline/ ./internal/generator/`
+
+### Analysis pipeline
+
+| Benchmark | Routes | Time | Memory |
+|-----------|--------|------|--------|
+| `LoadPackages` (chi-basic) | — | ~426 ms | 572 MB / 5.9 M allocs |
+| `RunPipeline` chi-basic | 6 | ~429 ms | 572 MB / 5.9 M allocs |
+| `RunPipeline` gorilla-basic | 8 | ~429 ms | 552 MB / 5.7 M allocs |
+| `RunPipeline` gin-basic | 5 | ~538 ms | 840 MB / 8.7 M allocs |
+
+**The dominant cost is `go/packages` type-checking** — loading and type-checking the full dependency tree via `NeedDeps`. Route extraction, contract analysis, struct mapping, and type lookups together add less than 5 ms on top. Memory is not retained after the call; it is held only during analysis and released when the returned `[]EndpointDef` is in scope.
+
+The type-lookup path was optimised in v0.1.0: a single `packages.Visit` traversal builds a `pkgPath → name → types.Type` index at pipeline start, replacing the previous O(N×routes×deps) repeated traversals with O(1) map lookups.
+
+### Documentation generation
+
+| Benchmark | Endpoints | Time | Memory |
+|-----------|-----------|------|--------|
+| `Generate` folder mode | 6 | ~1.6 ms | 317 KB / 190 allocs |
+| `Generate` single mode | 6 | ~1.0 ms | 3.2 MB / 173 allocs |
+
+Single-file mode writes more memory (≈10× more per run) because all CSS, JS, and WOFF2 font assets are base64-encoded and inlined into one self-contained HTML file (~300 KB on disk).
+
 ## Roadmap
 
 | Phase | Scope | Status |
