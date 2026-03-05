@@ -32,18 +32,9 @@ testdata/chi-nested/chi-nested
 testdata/mixed-auth/mixed-auth
 
 # Internal dev notes
-AGENT_PROMPTS.md
-IMPLEMENTATION_FLOW.md
-technical_spec.md
-GAP_ANALYSIS.md
+godoclive-growth-campaign.md
 CLAUDE.md
-brand-review.md
-REVIEW.md
-STDLIB_HTTP_REVIEW.md
-STDLIB_E2E_TEST_PROMPT.md
-GIN_E2E_TEST_PROMPT.md
-GORILLA_MUX_AGENT_PROMPT.md
-OPENAPI_AGENT_PROMPT.md
+technical_spec.md
 
 # test folders
 /gin-e2e-test

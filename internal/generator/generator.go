@@ -213,8 +213,29 @@ func convertBody(req model.RequestDef) *apiBody {
 		if err == nil {
 			b.Example = string(exBytes)
 		}
+	} else if req.Body.Kind == model.KindStruct && len(req.Body.Fields) > 0 {
+		if obj := buildStructExample(req.Body); obj != nil {
+			exBytes, err := json.MarshalIndent(obj, "", "  ")
+			if err == nil {
+				b.Example = string(exBytes)
+			}
+		}
 	}
 	return b
+}
+
+func buildStructExample(td *model.TypeDef) map[string]interface{} {
+	obj := make(map[string]interface{})
+	for _, f := range td.Fields {
+		if f.JSONName == "" || f.JSONName == "-" {
+			continue
+		}
+		obj[f.JSONName] = f.Example
+	}
+	if len(obj) == 0 {
+		return nil
+	}
+	return obj
 }
 
 func convertTypeDefFields(td *model.TypeDef) []apiField {

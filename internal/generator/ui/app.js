@@ -1030,11 +1030,19 @@
       h += '</div></div>';
     }
 
-    // Body
-    if (ep.body && ep.body.example) {
+    // Body — show for detected bodies or methods that commonly carry a body
+    var bodyMethods = ['POST', 'PUT', 'PATCH'];
+    var showBodyArea = ep.body || bodyMethods.indexOf(ep.method) >= 0;
+    if (showBodyArea) {
+      var bodyExample = (ep.body && ep.body.example) ? ep.body.example : '';
+      var ctypeLabel = ep.body ? ep.body.contentType : 'application/json';
       h += '<div class="try-it-row">';
       h += '<span class="try-it-label">Body</span>';
-      h += '<textarea class="try-it-body-textarea" aria-label="Request body">' + esc(ep.body.example) + '</textarea>';
+      h += '<div class="try-it-body-wrapper">';
+      var bodyPlaceholder = bodyExample ? '' : '{}';
+      h += '<textarea class="try-it-body-textarea" aria-label="Request body" placeholder="' + bodyPlaceholder + '">' + esc(bodyExample) + '</textarea>';
+      h += '<span class="try-it-body-content-type">' + esc(ctypeLabel) + '</span>';
+      h += '</div>';
       h += '</div>';
     }
 
@@ -1208,10 +1216,17 @@
     });
     if (queryParts.length > 0) url += '?' + queryParts.join('&');
 
+    // Body
+    var body = null;
+    var textarea = panel.querySelector('.try-it-body-textarea');
+    if (textarea && textarea.value) {
+      body = textarea.value;
+    }
+
     // Headers
     var headers = {};
-    if (ep.body) {
-      headers['Content-Type'] = ep.body.contentType;
+    if (body) {
+      headers['Content-Type'] = ep.body ? ep.body.contentType : 'application/json';
     }
     panel.querySelectorAll('.try-it-param-input[data-header]').forEach(function (input) {
       if (input.value) {
@@ -1227,13 +1242,6 @@
       headers[globalAuth.apikeyHeader] = globalAuth.apikeyValue;
     } else if (epScheme === 'basic' && globalAuth.basicUser) {
       headers['Authorization'] = 'Basic ' + btoa(globalAuth.basicUser + ':' + globalAuth.basicPass);
-    }
-
-    // Body
-    var body = null;
-    var textarea = panel.querySelector('.try-it-body-textarea');
-    if (textarea && textarea.value) {
-      body = textarea.value;
     }
 
     // Spinner

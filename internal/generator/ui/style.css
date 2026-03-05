@@ -1113,6 +1113,21 @@ input, textarea, select {
   outline: none;
 }
 
+/* Body wrapper */
+.try-it-body-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.try-it-body-content-type {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  align-self: flex-end;
+}
+
 /* Body textarea */
 .try-it-body-textarea {
   font-family: var(--font-mono);
