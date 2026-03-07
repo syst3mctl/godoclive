@@ -348,15 +348,8 @@
     return null;
   }
 
-  // Base URL — injected data.baseUrl always wins over stale localStorage.
-  var BASE_URL_KEY = 'gdl-base-url';
-  var baseUrl;
-  if (data.baseUrl) {
-    baseUrl = data.baseUrl;
-    localStorage.setItem(BASE_URL_KEY, baseUrl);
-  } else {
-    baseUrl = localStorage.getItem(BASE_URL_KEY) || 'http://localhost:8080';
-  }
+  // Base URL — fixed from injected data; not user-editable.
+  var baseUrl = data.baseUrl || 'http://localhost:8080';
 
   // ============================================================
   // Helpers
@@ -969,12 +962,6 @@
     h += '</button>';
     h += '<div class="try-it-panel" id="tryit-' + epId + '" aria-label="Try It panel for ' + ep.method + ' ' + esc(ep.path) + '">';
 
-    // Base URL
-    h += '<div class="try-it-row">';
-    h += '<span class="try-it-label">Base URL</span>';
-    h += '<input type="text" class="try-it-input try-it-base-url" value="' + esc(baseUrl) + '" aria-label="Base URL">';
-    h += '</div>';
-
     // Path with inline inputs
     var pathParams = (ep.params || []).filter(function (p) { return p.in === 'path'; });
     if (pathParams.length > 0) {
@@ -1173,19 +1160,6 @@
   });
 
   // ============================================================
-  // Base URL sync — persist to localStorage + sync all inputs
-  // ============================================================
-  contentInner.addEventListener('change', function (e) {
-    if (!e.target.classList.contains('try-it-base-url')) return;
-    baseUrl = e.target.value;
-    localStorage.setItem(BASE_URL_KEY, baseUrl);
-    // Sync all base URL inputs
-    document.querySelectorAll('.try-it-base-url').forEach(function (input) {
-      input.value = baseUrl;
-    });
-  });
-
-  // ============================================================
   // Send Request
   // ============================================================
   contentInner.addEventListener('click', function (e) {
@@ -1198,8 +1172,7 @@
     if (!panel) return;
 
     // Build URL
-    var urlBase = panel.querySelector('.try-it-base-url');
-    var url = (urlBase ? urlBase.value : baseUrl) + ep.path;
+    var url = baseUrl + ep.path;
 
     // Replace path params
     panel.querySelectorAll('.try-it-path-input').forEach(function (input) {
