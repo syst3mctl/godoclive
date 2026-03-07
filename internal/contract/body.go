@@ -33,6 +33,15 @@ func ExtractBody(body *ast.BlockStmt, info *types.Info, paramNames resolver.Hand
 			return true
 		}
 
+		// --- echo patterns ---
+
+		// c.Bind(&req)
+		if t, ok := matchGinBindMethod(call, info, paramNames.EchoCtx, "Bind"); ok {
+			result.BodyType = t
+			result.ContentType = "application/json"
+			return false
+		}
+
 		// --- net/http JSON patterns ---
 
 		// json.NewDecoder(r.Body).Decode(&req)

@@ -11,6 +11,7 @@ type HandlerParamNames struct {
 	Writer  string // name of the http.ResponseWriter param
 	Request string // name of the *http.Request param
 	GinCtx  string // name of the *gin.Context param
+	EchoCtx string // name of the echo.Context param
 }
 
 // ResolveHandlerParams inspects a function's parameter list and determines
@@ -44,6 +45,8 @@ func ResolveHandlerParams(fn *ast.FuncType, info *types.Info) HandlerParamNames 
 				names.Request = name.Name
 			case isGinContext(t):
 				names.GinCtx = name.Name
+			case isEchoContext(t):
+				names.EchoCtx = name.Name
 			}
 		}
 	}
@@ -116,4 +119,17 @@ func isGinContext(t types.Type) bool {
 	}
 	obj := named.Obj()
 	return obj.Pkg() != nil && obj.Pkg().Path() == "github.com/gin-gonic/gin" && obj.Name() == "Context"
+}
+
+// isEchoContext checks whether t is echo.Context (an interface, not a pointer).
+func isEchoContext(t types.Type) bool {
+	named, ok := t.(*types.Named)
+	if !ok {
+		return false
+	}
+	obj := named.Obj()
+	return obj.Pkg() != nil &&
+		(obj.Pkg().Path() == "github.com/labstack/echo/v4" ||
+			obj.Pkg().Path() == "github.com/labstack/echo") &&
+		obj.Name() == "Context"
 }

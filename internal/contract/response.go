@@ -54,6 +54,9 @@ func ExtractResponses(body *ast.BlockStmt, info *types.Info, paramNames resolver
 	if paramNames.GinCtx != "" {
 		return extractGinResponses(body, info, paramNames, pkgs)
 	}
+	if paramNames.EchoCtx != "" {
+		return extractEchoResponses(body, info, paramNames, pkgs)
+	}
 	return extractHTTPResponses(body, info, paramNames, pkgs)
 }
 
@@ -147,6 +150,137 @@ func extractGinResponses(body *ast.BlockStmt, info *types.Info, pn resolver.Hand
 					Source:      "explicit",
 					Description: "OK",
 				})
+			}
+		}
+
+		return true
+	})
+
+	return responses, unresolved
+}
+
+// --- Echo response extraction ---
+
+func extractEchoResponses(body *ast.BlockStmt, info *types.Info, pn resolver.HandlerParamNames, pkgs []*packages.Package) ([]model.ResponseDef, []string) {
+	var responses []model.ResponseDef
+	var unresolved []string
+	seen := make(map[int]bool)
+
+	ast.Inspect(body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+
+		recv, ok := sel.X.(*ast.Ident)
+		if !ok || recv.Name != pn.EchoCtx {
+			return true
+		}
+
+		switch sel.Sel.Name {
+		case "JSON":
+			// c.JSON(statusCode, body)
+			if len(call.Args) >= 2 {
+				code := ResolveStatusCode(call.Args[0], info)
+				if code == -1 {
+					unresolved = append(unresolved, unresolvedStatusMsg(call, info))
+					return true
+				}
+				if seen[code] {
+					return true
+				}
+				seen[code] = true
+				resp := model.ResponseDef{
+					StatusCode:  code,
+					ContentType: "application/json",
+					Source:      "explicit",
+					Description: descriptionForStatus(code),
+				}
+				bodyType := resolveBodyType(call.Args[1], info)
+				if bodyType != nil {
+					resp.Body = typeRefDef(bodyType)
+				}
+				responses = append(responses, resp)
+			}
+
+		case "NoContent":
+			// c.NoContent(statusCode)
+			if len(call.Args) >= 1 {
+				code := ResolveStatusCode(call.Args[0], info)
+				if code == -1 {
+					unresolved = append(unresolved, unresolvedStatusMsg(call, info))
+					return true
+				}
+				if !seen[code] {
+					seen[code] = true
+					responses = append(responses, model.ResponseDef{
+						StatusCode:  code,
+						Source:      "explicit",
+						Description: descriptionForStatus(code),
+					})
+				}
+			}
+
+		case "String":
+			// c.String(statusCode, msg)
+			if len(call.Args) >= 1 {
+				code := ResolveStatusCode(call.Args[0], info)
+				if code == -1 {
+					unresolved = append(unresolved, unresolvedStatusMsg(call, info))
+					return true
+				}
+				if !seen[code] {
+					seen[code] = true
+					responses = append(responses, model.ResponseDef{
+						StatusCode:  code,
+						ContentType: "text/plain",
+						Source:      "explicit",
+						Description: descriptionForStatus(code),
+					})
+				}
+			}
+
+		case "HTML":
+			// c.HTML(statusCode, html)
+			if len(call.Args) >= 1 {
+				code := ResolveStatusCode(call.Args[0], info)
+				if code == -1 {
+					unresolved = append(unresolved, unresolvedStatusMsg(call, info))
+					return true
+				}
+				if !seen[code] {
+					seen[code] = true
+					responses = append(responses, model.ResponseDef{
+						StatusCode:  code,
+						ContentType: "text/html",
+						Source:      "explicit",
+						Description: descriptionForStatus(code),
+					})
+				}
+			}
+
+		case "JSONBlob":
+			// c.JSONBlob(statusCode, data)
+			if len(call.Args) >= 1 {
+				code := ResolveStatusCode(call.Args[0], info)
+				if code == -1 {
+					unresolved = append(unresolved, unresolvedStatusMsg(call, info))
+					return true
+				}
+				if !seen[code] {
+					seen[code] = true
+					responses = append(responses, model.ResponseDef{
+						StatusCode:  code,
+						ContentType: "application/json",
+						Source:      "explicit",
+						Description: descriptionForStatus(code),
+					})
+				}
 			}
 		}
 

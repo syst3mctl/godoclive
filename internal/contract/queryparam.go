@@ -79,6 +79,15 @@ func ExtractQueryParams(body *ast.BlockStmt, info *types.Info, paramNames resolv
 				return false
 			}
 
+			// --- echo patterns ---
+
+			// c.QueryParam("key")
+			if name, ok := matchGinSimple(call, paramNames.EchoCtx, "QueryParam"); ok && !seen[name] {
+				params = append(params, model.ParamDef{Name: name, In: "query", Type: "string"})
+				seen[name] = true
+				return false
+			}
+
 			return true
 		})
 	}

@@ -221,6 +221,15 @@ func extractPathParamName(expr ast.Expr, pn resolver.HandlerParamNames) string {
 		}
 	}
 
+	// c.Param("name") — echo
+	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+		if ident, ok := sel.X.(*ast.Ident); ok {
+			if ident.Name == pn.EchoCtx && sel.Sel.Name == "Param" && len(call.Args) == 1 {
+				return extractStringLit(call.Args[0])
+			}
+		}
+	}
+
 	return ""
 }
 

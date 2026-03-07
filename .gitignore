@@ -42,6 +42,8 @@ technical_spec.md
 /gin-e2e-docs
 /gorilla-e2e-test
 /gorilla-e2e-docs
+/echo-e2e-docs
+/echo-e2e-test
 
 # for agent
 /pr-description

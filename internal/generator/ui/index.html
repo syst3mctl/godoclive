@@ -20,6 +20,11 @@
        ============================================================ -->
   <header class="topbar" role="banner">
     <div class="topbar-left">
+      <button class="topbar-btn sidebar-toggle" id="sidebar-toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="sidebar">
+        <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </button>
       <div class="topbar-logo" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M4 6h16M4 12h10M4 18h14" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
@@ -64,6 +69,9 @@
       </button>
     </div>
   </header>
+
+  <!-- Sidebar overlay (mobile) -->
+  <div class="sidebar-overlay" id="sidebar-overlay" aria-hidden="true"></div>
 
   <!-- ============================================================
        SIDEBAR (Section 10.4)

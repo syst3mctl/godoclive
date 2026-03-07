@@ -215,6 +215,56 @@ input, textarea, select {
 }
 
 /* ============================================================
+   Sidebar toggle button — hidden on desktop
+   ============================================================ */
+.sidebar-toggle {
+  display: none;
+}
+
+/* ============================================================
+   Sidebar overlay (mobile)
+   ============================================================ */
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 85;
+}
+
+.sidebar-overlay.open {
+  display: block;
+}
+
+/* ============================================================
+   Mobile layout (≤ 768px)
+   ============================================================ */
+@media (max-width: 768px) {
+  .sidebar-toggle {
+    display: flex;
+  }
+
+  .sidebar {
+    transform: translateX(-100%);
+    z-index: 95;
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .content-area {
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 768px) and (prefers-reduced-motion: no-preference) {
+  .sidebar {
+    transition: transform 200ms ease;
+  }
+}
+
+/* ============================================================
    Topbar (Section 10.3)
    ============================================================ */
 .topbar-left {

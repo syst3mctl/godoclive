@@ -1381,12 +1381,188 @@ func TestPipeline_GinBindQuery(t *testing.T) {
 
 // --- Cross-project feature summary ---
 
+// --- echo-basic integration tests ---
+
+func TestEchoBasic(t *testing.T) {
+	dir := testdataDir("echo-basic")
+	eps, err := pipeline.RunPipeline(dir, "./...", nil)
+	if err != nil {
+		t.Fatalf("RunPipeline: %v", err)
+	}
+
+	if len(eps) != 8 {
+		t.Fatalf("expected 8 endpoints, got %d: %v", len(eps), func() []string {
+			var s []string
+			for _, e := range eps {
+				s = append(s, e.Method+" "+e.Path)
+			}
+			return s
+		}())
+	}
+
+	routes := []struct {
+		method string
+		path   string
+	}{
+		{"GET", "/health"},
+		{"GET", "/users"},
+		{"POST", "/users"},
+		{"GET", "/users/{id}"},
+		{"DELETE", "/users/{id}"},
+		{"GET", "/api/v1/items"},
+		{"GET", "/api/v1/items/{id}"},
+		{"POST", "/api/v1/items"},
+	}
+	for _, r := range routes {
+		ep := findEndpoint(eps, r.method, r.path)
+		if ep == nil {
+			t.Errorf("missing endpoint %s %s", r.method, r.path)
+		}
+	}
+}
+
+func TestEchoBasic_PathParam(t *testing.T) {
+	dir := testdataDir("echo-basic")
+	eps, err := pipeline.RunPipeline(dir, "./...", nil)
+	if err != nil {
+		t.Fatalf("RunPipeline: %v", err)
+	}
+
+	ep := findEndpoint(eps, "GET", "/users/{id}")
+	if ep == nil {
+		t.Fatal("GET /users/{id} not found")
+	}
+	if len(ep.Request.PathParams) == 0 {
+		t.Fatal("expected path param 'id'")
+	}
+	found := false
+	for _, p := range ep.Request.PathParams {
+		if p.Name == "id" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("missing path param 'id'")
+	}
+}
+
+func TestEchoBasic_QueryParam(t *testing.T) {
+	dir := testdataDir("echo-basic")
+	eps, err := pipeline.RunPipeline(dir, "./...", nil)
+	if err != nil {
+		t.Fatalf("RunPipeline: %v", err)
+	}
+
+	ep := findEndpoint(eps, "GET", "/api/v1/items")
+	if ep == nil {
+		t.Fatal("GET /api/v1/items not found")
+	}
+	found := false
+	for _, p := range ep.Request.QueryParams {
+		if p.Name == "category" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("missing query param 'category'")
+	}
+}
+
+func TestEchoBasic_Body(t *testing.T) {
+	dir := testdataDir("echo-basic")
+	eps, err := pipeline.RunPipeline(dir, "./...", nil)
+	if err != nil {
+		t.Fatalf("RunPipeline: %v", err)
+	}
+
+	ep := findEndpoint(eps, "POST", "/users")
+	if ep == nil {
+		t.Fatal("POST /users not found")
+	}
+	if ep.Request.Body == nil {
+		t.Fatal("expected request body")
+	}
+	if ep.Request.Body.Name != "CreateUserRequest" {
+		t.Errorf("body name = %q, want %q", ep.Request.Body.Name, "CreateUserRequest")
+	}
+}
+
+func TestEchoBasic_Responses(t *testing.T) {
+	dir := testdataDir("echo-basic")
+	eps, err := pipeline.RunPipeline(dir, "./...", nil)
+	if err != nil {
+		t.Fatalf("RunPipeline: %v", err)
+	}
+
+	// POST /users should have 201 and 400.
+	ep := findEndpoint(eps, "POST", "/users")
+	if ep == nil {
+		t.Fatal("POST /users not found")
+	}
+	var has201, has400 bool
+	for _, r := range ep.Responses {
+		if r.StatusCode == 201 {
+			has201 = true
+		}
+		if r.StatusCode == 400 {
+			has400 = true
+		}
+	}
+	if !has201 {
+		t.Error("missing 201 response")
+	}
+	if !has400 {
+		t.Error("missing 400 response")
+	}
+
+	// DELETE /users/{id} should have 204.
+	del := findEndpoint(eps, "DELETE", "/users/{id}")
+	if del == nil {
+		t.Fatal("DELETE /users/{id} not found")
+	}
+	has204 := false
+	for _, r := range del.Responses {
+		if r.StatusCode == 204 {
+			has204 = true
+		}
+	}
+	if !has204 {
+		t.Error("missing 204 response on DELETE /users/{id}")
+	}
+}
+
+func TestEchoBasic_GroupAuth(t *testing.T) {
+	dir := testdataDir("echo-basic")
+	eps, err := pipeline.RunPipeline(dir, "./...", nil)
+	if err != nil {
+		t.Fatalf("RunPipeline: %v", err)
+	}
+
+	// /health is public.
+	health := findEndpoint(eps, "GET", "/health")
+	if health == nil {
+		t.Fatal("GET /health not found")
+	}
+	if health.Auth.Required {
+		t.Error("GET /health should not require auth")
+	}
+
+	// /api/v1/items has auth middleware.
+	items := findEndpoint(eps, "GET", "/api/v1/items")
+	if items == nil {
+		t.Fatal("GET /api/v1/items not found")
+	}
+	if !items.Auth.Required {
+		t.Error("GET /api/v1/items should require auth (bearer via authMiddleware)")
+	}
+}
+
 func TestPipeline_AllProjects_Build(t *testing.T) {
 	// Smoke test: every testdata project runs through the pipeline without error.
 	projects := []string{
 		"chi-basic", "chi-nested", "chi-inline", "chi-helpers",
 		"gin-basic", "gin-groups", "gin-helpers",
-		"multipart", "mixed-auth", "gin-bind-query", "gorilla-basic",
+		"multipart", "mixed-auth", "gin-bind-query", "gorilla-basic", "echo-basic",
 	}
 	for _, name := range projects {
 		t.Run(name, func(t *testing.T) {

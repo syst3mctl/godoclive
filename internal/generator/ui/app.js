@@ -1745,6 +1745,39 @@
   }
 
   // ============================================================
+  // Sidebar toggle (mobile)
+  // ============================================================
+  var sidebarEl = document.getElementById('sidebar');
+  var sidebarOverlay = document.getElementById('sidebar-overlay');
+  var sidebarToggleBtn = document.getElementById('sidebar-toggle');
+
+  function openSidebar() {
+    sidebarEl.classList.add('open');
+    sidebarOverlay.classList.add('open');
+    sidebarToggleBtn.setAttribute('aria-expanded', 'true');
+  }
+
+  function closeSidebar() {
+    sidebarEl.classList.remove('open');
+    sidebarOverlay.classList.remove('open');
+    sidebarToggleBtn.setAttribute('aria-expanded', 'false');
+  }
+
+  sidebarToggleBtn.addEventListener('click', function () {
+    if (sidebarEl.classList.contains('open')) closeSidebar();
+    else openSidebar();
+  });
+
+  sidebarOverlay.addEventListener('click', closeSidebar);
+
+  // Close sidebar on endpoint click on mobile
+  sidebarGroupsEl.addEventListener('click', function (e) {
+    if (e.target.closest('.endpoint-row') && window.innerWidth <= 768) {
+      closeSidebar();
+    }
+  });
+
+  // ============================================================
   // SSE live reload — connect when served via godoclive watch
   // ============================================================
   if (window.location.protocol !== 'file:') {
