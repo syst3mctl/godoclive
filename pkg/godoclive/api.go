@@ -19,6 +19,7 @@ type Options struct {
 	OutputPath    string
 	Format        string // "folder" or "single"
 	Title         string
+	Description   string
 	Version       string
 	BaseURL       string
 	Theme         string // "light" or "dark"
@@ -46,6 +47,11 @@ func WithFormat(format string) Option {
 // WithTitle sets the project title displayed in the documentation.
 func WithTitle(title string) Option {
 	return func(o *Options) { o.Title = title }
+}
+
+// WithDescription sets the API description in the OpenAPI spec info block.
+func WithDescription(description string) Option {
+	return func(o *Options) { o.Description = description }
 }
 
 // WithVersion sets the project version displayed in the documentation.
@@ -114,8 +120,9 @@ func Generate(endpoints []EndpointDef, opts ...Option) error {
 	// Also write OpenAPI spec if configured.
 	if o.OpenAPIOutput != "" {
 		doc := openapi.Generate(endpoints, openapi.Config{
-			Title:   o.Title,
-			Version: o.Version,
+			Title:       o.Title,
+			Description: o.Description,
+			Version:     o.Version,
 		})
 		if err := openapi.Write(doc, openapi.WriteConfig{
 			OutputPath: o.OpenAPIOutput,
@@ -137,8 +144,9 @@ func GenerateOpenAPI(endpoints []EndpointDef, opts ...Option) ([]byte, error) {
 	}
 
 	doc := openapi.Generate(endpoints, openapi.Config{
-		Title:   o.Title,
-		Version: o.Version,
+		Title:       o.Title,
+		Description: o.Description,
+		Version:     o.Version,
 	})
 
 	return openapi.Marshal(doc)
