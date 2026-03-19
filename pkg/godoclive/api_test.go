@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/syst3mctl/godoclive/internal/model"
-	godoclive "github.com/syst3mctl/godoclive/pkg/godoclive"
+	"github.com/dicki/godoclive/internal/model"
+	godoclive "github.com/dicki/godoclive/pkg/godoclive"
 )
 
 func TestGenerateOpenAPI_WithDescription(t *testing.T) {

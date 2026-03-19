@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/syst3mctl/godoclive/internal/model"
+	"github.com/dicki/godoclive/internal/model"
 )
 
 // Config holds settings for OpenAPI document generation.

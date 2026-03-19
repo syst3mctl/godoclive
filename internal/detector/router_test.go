@@ -6,8 +6,8 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/syst3mctl/godoclive/internal/detector"
-	"github.com/syst3mctl/godoclive/internal/loader"
+	"github.com/dicki/godoclive/internal/detector"
+	"github.com/dicki/godoclive/internal/loader"
 )
 
 func testdataPath(name string) string {

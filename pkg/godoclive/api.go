@@ -3,11 +3,11 @@
 package godoclive
 
 import (
-	"github.com/syst3mctl/godoclive/internal/config"
-	"github.com/syst3mctl/godoclive/internal/generator"
-	"github.com/syst3mctl/godoclive/internal/model"
-	"github.com/syst3mctl/godoclive/internal/openapi"
-	"github.com/syst3mctl/godoclive/internal/pipeline"
+	"github.com/dicki/godoclive/internal/config"
+	"github.com/dicki/godoclive/internal/generator"
+	"github.com/dicki/godoclive/internal/model"
+	"github.com/dicki/godoclive/internal/openapi"
+	"github.com/dicki/godoclive/internal/pipeline"
 )
 
 // EndpointDef is the public type alias for the analyzed endpoint contract.

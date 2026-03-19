@@ -5,12 +5,12 @@
     Point it at your Go code. Get interactive docs. No annotations required.
   </p>
   <p align="center">
-    <a href="https://github.com/syst3mctl/godoclive/actions"><img src="https://img.shields.io/github/actions/workflow/status/syst3mctl/godoclive/ci.yml?branch=main&style=flat-square&logo=github&label=CI" alt="CI"></a>
-    <a href="https://goreportcard.com/report/github.com/syst3mctl/godoclive"><img src="https://goreportcard.com/badge/github.com/syst3mctl/godoclive?style=flat-square" alt="Go Report Card"></a>
-    <a href="https://pkg.go.dev/github.com/syst3mctl/godoclive"><img src="https://img.shields.io/badge/go.dev-reference-007d9c?style=flat-square&logo=go&logoColor=white" alt="Go Reference"></a>
-    <a href="https://github.com/syst3mctl/godoclive/releases"><img src="https://img.shields.io/github/v/release/syst3mctl/godoclive?style=flat-square&color=blue" alt="Release"></a>
+    <a href="https://github.com/dicki/godoclive/actions"><img src="https://img.shields.io/github/actions/workflow/status/dicki/godoclive/ci.yml?branch=main&style=flat-square&logo=github&label=CI" alt="CI"></a>
+    <a href="https://goreportcard.com/report/github.com/dicki/godoclive"><img src="https://goreportcard.com/badge/github.com/dicki/godoclive?style=flat-square" alt="Go Report Card"></a>
+    <a href="https://pkg.go.dev/github.com/dicki/godoclive"><img src="https://img.shields.io/badge/go.dev-reference-007d9c?style=flat-square&logo=go&logoColor=white" alt="Go Reference"></a>
+    <a href="https://github.com/dicki/godoclive/releases"><img src="https://img.shields.io/github/v/release/dicki/godoclive?style=flat-square&color=blue" alt="Release"></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License: MIT"></a>
-    <a href="https://codecov.io/gh/syst3mctl/godoclive/branch/main/graph/badge.svg"><img src="https://codecov.io/gh/syst3mctl/godoclive/branch/main/graph/badge.svg" alt="Codecov"></a>
+    <a href="https://codecov.io/gh/dicki/godoclive/branch/main/graph/badge.svg"><img src="https://codecov.io/gh/dicki/godoclive/branch/main/graph/badge.svg" alt="Codecov"></a>
   </p>
 </p>
 
@@ -26,7 +26,7 @@
 ## Quickstart
 
 ```bash
-go install github.com/syst3mctl/godoclive/cmd/godoclive@latest
+go install github.com/dicki/godoclive/cmd/godoclive@latest
 godoclive generate ./...
 open docs/index.html
 ```
@@ -246,7 +246,7 @@ openapi:
 Use GoDoc Live as a library in your own tools:
 
 ```go
-import "github.com/syst3mctl/godoclive"
+import "github.com/dicki/godoclive"
 
 // Analyze a project
 endpoints, err := godoclive.Analyze(".", "./...",

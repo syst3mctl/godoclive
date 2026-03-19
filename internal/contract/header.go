@@ -5,8 +5,8 @@ import (
 	"go/types"
 	"strings"
 
-	"github.com/syst3mctl/godoclive/internal/model"
-	"github.com/syst3mctl/godoclive/internal/resolver"
+	"github.com/dicki/godoclive/internal/model"
+	"github.com/dicki/godoclive/internal/resolver"
 )
 
 // Headers to skip — handled by auth detection and content-type detection.

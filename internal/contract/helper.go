@@ -5,8 +5,8 @@ import (
 	"go/ast"
 	"go/types"
 
-	"github.com/syst3mctl/godoclive/internal/model"
-	"github.com/syst3mctl/godoclive/internal/resolver"
+	"github.com/dicki/godoclive/internal/model"
+	"github.com/dicki/godoclive/internal/resolver"
 	"golang.org/x/tools/go/packages"
 )
 
