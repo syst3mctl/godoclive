@@ -1,4 +1,4 @@
-module github.com/syst3mctl/godoclive/testdata/mixed-auth
+module github.com/dicki/godoclive/testdata/mixed-auth
 
 go 1.23
 

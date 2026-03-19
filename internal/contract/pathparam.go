@@ -6,8 +6,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/syst3mctl/godoclive/internal/model"
-	"github.com/syst3mctl/godoclive/internal/resolver"
+	"github.com/dicki/godoclive/internal/model"
+	"github.com/dicki/godoclive/internal/resolver"
 )
 
 var pathParamPattern = regexp.MustCompile(`\{([^}]+)\}`)

@@ -3,7 +3,7 @@ package model_test
 import (
 	"testing"
 
-	"github.com/syst3mctl/godoclive/internal/model"
+	"github.com/dicki/godoclive/internal/model"
 )
 
 func TestInferSummary(t *testing.T) {

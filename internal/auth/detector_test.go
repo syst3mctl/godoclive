@@ -5,10 +5,10 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/syst3mctl/godoclive/internal/auth"
-	"github.com/syst3mctl/godoclive/internal/extractor"
-	"github.com/syst3mctl/godoclive/internal/loader"
-	"github.com/syst3mctl/godoclive/internal/model"
+	"github.com/dicki/godoclive/internal/auth"
+	"github.com/dicki/godoclive/internal/extractor"
+	"github.com/dicki/godoclive/internal/loader"
+	"github.com/dicki/godoclive/internal/model"
 )
 
 func testdataDir(name string) string {

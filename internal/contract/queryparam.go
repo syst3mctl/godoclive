@@ -5,8 +5,8 @@ import (
 	"go/types"
 	"strings"
 
-	"github.com/syst3mctl/godoclive/internal/model"
-	"github.com/syst3mctl/godoclive/internal/resolver"
+	"github.com/dicki/godoclive/internal/model"
+	"github.com/dicki/godoclive/internal/resolver"
 )
 
 // ExtractQueryParams walks a handler function body and detects query parameter
