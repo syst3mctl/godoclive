@@ -1,3 +1,3 @@
-module github.com/syst3mctl/godoclive/testdata/stdlib-basic
+module github.com/dicki/godoclive/testdata/stdlib-basic
 
 go 1.23

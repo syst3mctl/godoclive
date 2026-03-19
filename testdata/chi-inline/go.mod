@@ -1,4 +1,4 @@
-module github.com/syst3mctl/godoclive/testdata/chi-inline
+module github.com/dicki/godoclive/testdata/chi-inline
 
 go 1.23
 
