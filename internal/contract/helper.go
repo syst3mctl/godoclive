@@ -5,17 +5,17 @@ import (
 	"go/ast"
 	"go/types"
 
-	"github.com/dicki/godoclive/internal/model"
-	"github.com/dicki/godoclive/internal/resolver"
+	"github.com/syst3mctl/godoclive/internal/model"
+	"github.com/syst3mctl/godoclive/internal/resolver"
 	"golang.org/x/tools/go/packages"
 )
 
 // Known packages whose functions should NOT be traced into.
 var skipPackages = map[string]bool{
-	"net/http":                   true,
-	"encoding/json":             true,
-	"github.com/go-chi/chi/v5":  true,
-	"github.com/gin-gonic/gin":  true,
+	"net/http":                 true,
+	"encoding/json":            true,
+	"github.com/go-chi/chi/v5": true,
+	"github.com/gin-gonic/gin": true,
 }
 
 // traceHelper checks if a call expression is a helper function that takes a

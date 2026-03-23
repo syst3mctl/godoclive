@@ -1,10 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
-	"bufio"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -15,11 +15,11 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/cobra"
-	"github.com/dicki/godoclive/internal/config"
-	"github.com/dicki/godoclive/internal/generator"
-	"github.com/dicki/godoclive/internal/model"
-	"github.com/dicki/godoclive/internal/openapi"
-	"github.com/dicki/godoclive/internal/pipeline"
+	"github.com/syst3mctl/godoclive/internal/config"
+	"github.com/syst3mctl/godoclive/internal/generator"
+	"github.com/syst3mctl/godoclive/internal/model"
+	"github.com/syst3mctl/godoclive/internal/openapi"
+	"github.com/syst3mctl/godoclive/internal/pipeline"
 )
 
 var version = "dev"
@@ -62,10 +62,10 @@ var (
 
 // openapi flags
 var (
-	flagOpenAPIOutput string
-	flagOpenAPIFormat string
-	flagOpenAPITitle  string
-	flagOpenAPIServer string
+	flagOpenAPIOutput   string
+	flagOpenAPIFormat   string
+	flagOpenAPITitle    string
+	flagOpenAPIServer   string
 	flagGenerateOpenAPI string
 )
 
@@ -272,10 +272,10 @@ func printSummaryTable(endpoints []model.EndpointDef, verbose bool) error {
 
 // ValidateReport is the JSON structure for the validate command.
 type ValidateReport struct {
-	Total     int              `json:"total"`
-	Resolved  int              `json:"resolved"`
-	Partial   int              `json:"partial"`
-	Endpoints []ValidateEntry  `json:"endpoints"`
+	Total     int             `json:"total"`
+	Resolved  int             `json:"resolved"`
+	Partial   int             `json:"partial"`
+	Endpoints []ValidateEntry `json:"endpoints"`
 }
 
 // ValidateEntry represents one endpoint in the validate report.

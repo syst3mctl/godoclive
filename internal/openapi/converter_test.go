@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dicki/godoclive/internal/model"
+	"github.com/syst3mctl/godoclive/internal/model"
 )
 
 func TestBasicEndpointConversion(t *testing.T) {

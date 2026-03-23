@@ -1,4 +1,4 @@
-module github.com/dicki/godoclive
+module github.com/syst3mctl/godoclive
 
 go 1.25.0
 

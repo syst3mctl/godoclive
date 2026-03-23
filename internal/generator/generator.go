@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/dicki/godoclive/internal/model"
+	"github.com/syst3mctl/godoclive/internal/model"
 )
 
 // GeneratorConfig holds configuration for documentation generation.

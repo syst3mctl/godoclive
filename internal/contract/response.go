@@ -6,40 +6,40 @@ import (
 	"go/token"
 	"go/types"
 
-	"github.com/dicki/godoclive/internal/model"
-	"github.com/dicki/godoclive/internal/resolver"
+	"github.com/syst3mctl/godoclive/internal/model"
+	"github.com/syst3mctl/godoclive/internal/resolver"
 	"golang.org/x/tools/go/packages"
 )
 
 // responseEvent represents a single response-related action in a handler body.
 type responseEvent struct {
-	kind       string     // "status" | "body" | "combined" | "helper"
-	statusCode int        // for "status" and "combined" events
-	bodyType   types.Type // for "body" and "combined" events (nil for status-only)
-	contentType string    // content type if determinable
-	pos        token.Pos  // source position for ordering
+	kind        string     // "status" | "body" | "combined" | "helper"
+	statusCode  int        // for "status" and "combined" events
+	bodyType    types.Type // for "body" and "combined" events (nil for status-only)
+	contentType string     // content type if determinable
+	pos         token.Pos  // source position for ordering
 }
 
 // httpStatusConstants maps net/http status constant names to their integer values.
 var httpStatusConstants = map[string]int{
-	"StatusContinue":           100,
-	"StatusOK":                 200,
-	"StatusCreated":            201,
-	"StatusAccepted":           202,
-	"StatusNoContent":          204,
-	"StatusMovedPermanently":   301,
-	"StatusFound":              302,
-	"StatusBadRequest":         400,
-	"StatusUnauthorized":       401,
-	"StatusForbidden":          403,
-	"StatusNotFound":           404,
-	"StatusMethodNotAllowed":   405,
-	"StatusConflict":           409,
+	"StatusContinue":            100,
+	"StatusOK":                  200,
+	"StatusCreated":             201,
+	"StatusAccepted":            202,
+	"StatusNoContent":           204,
+	"StatusMovedPermanently":    301,
+	"StatusFound":               302,
+	"StatusBadRequest":          400,
+	"StatusUnauthorized":        401,
+	"StatusForbidden":           403,
+	"StatusNotFound":            404,
+	"StatusMethodNotAllowed":    405,
+	"StatusConflict":            409,
 	"StatusUnprocessableEntity": 422,
-	"StatusTooManyRequests":    429,
+	"StatusTooManyRequests":     429,
 	"StatusInternalServerError": 500,
-	"StatusBadGateway":         502,
-	"StatusServiceUnavailable": 503,
+	"StatusBadGateway":          502,
+	"StatusServiceUnavailable":  503,
 }
 
 // ExtractResponses walks a handler function body and extracts all response

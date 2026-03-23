@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/dicki/godoclive/internal/loader"
+	"github.com/syst3mctl/godoclive/internal/loader"
 )
 
 func testdataDir() string {

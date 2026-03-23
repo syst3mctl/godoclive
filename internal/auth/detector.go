@@ -4,16 +4,16 @@ import (
 	"go/ast"
 	"go/types"
 
-	"github.com/dicki/godoclive/internal/model"
+	"github.com/syst3mctl/godoclive/internal/model"
 	"golang.org/x/tools/go/packages"
 )
 
 // knownAuthPackages maps import paths to their inferred auth scheme.
 var knownAuthPackages = map[string]model.AuthScheme{
-	"github.com/golang-jwt/jwt/v5":        model.AuthBearer,
-	"github.com/golang-jwt/jwt":           model.AuthBearer,
-	"github.com/dgrijalva/jwt-go":         model.AuthBearer,
-	"github.com/auth0/go-jwt-middleware":   model.AuthBearer,
+	"github.com/golang-jwt/jwt/v5":          model.AuthBearer,
+	"github.com/golang-jwt/jwt":             model.AuthBearer,
+	"github.com/dgrijalva/jwt-go":           model.AuthBearer,
+	"github.com/auth0/go-jwt-middleware":    model.AuthBearer,
 	"github.com/auth0/go-jwt-middleware/v2": model.AuthBearer,
 }
 

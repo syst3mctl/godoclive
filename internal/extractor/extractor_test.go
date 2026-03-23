@@ -5,8 +5,8 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/dicki/godoclive/internal/extractor"
-	"github.com/dicki/godoclive/internal/loader"
+	"github.com/syst3mctl/godoclive/internal/extractor"
+	"github.com/syst3mctl/godoclive/internal/loader"
 )
 
 func testdataDir(name string) string {
@@ -116,12 +116,12 @@ func TestChiExtractor_Nested(t *testing.T) {
 	//
 	// Total inline routes: 6 (the Mount callback is not a func literal, so not descended)
 	expected := map[string]bool{
-		"GET /api/v1/users":            true,
-		"POST /api/v1/users":           true,
-		"GET /api/v1/users/{userID}":   true,
-		"PUT /api/v1/users/{userID}":   true,
-		"GET /api/v1/stats":            true,
-		"DELETE /api/v1/cache":         true,
+		"GET /api/v1/users":          true,
+		"POST /api/v1/users":         true,
+		"GET /api/v1/users/{userID}": true,
+		"PUT /api/v1/users/{userID}": true,
+		"GET /api/v1/stats":          true,
+		"DELETE /api/v1/cache":       true,
 	}
 
 	if len(routes) != len(expected) {
@@ -204,11 +204,11 @@ func TestGinExtractor_Basic(t *testing.T) {
 	//   admin := v1.Group("/admin")
 	//     admin.GET("/users", ...)    → /api/v1/admin/users
 	expected := map[string]bool{
-		"GET /api/v1/items":       true,
-		"GET /api/v1/items/{id}":  true,
-		"POST /api/v1/items":      true,
+		"GET /api/v1/items":         true,
+		"GET /api/v1/items/{id}":    true,
+		"POST /api/v1/items":        true,
 		"DELETE /api/v1/items/{id}": true,
-		"GET /api/v1/admin/users": true,
+		"GET /api/v1/admin/users":   true,
 	}
 
 	if len(routes) != len(expected) {
@@ -306,11 +306,11 @@ func TestStdlibExtractor_Basic(t *testing.T) {
 	// GET /users, POST /users, GET /users/{id}, DELETE /users/{id},
 	// /health (ANY), GET /products/{id} (http.Handler)
 	expected := map[string]bool{
-		"GET /users":        true,
-		"POST /users":       true,
-		"GET /users/{id}":   true,
+		"GET /users":         true,
+		"POST /users":        true,
+		"GET /users/{id}":    true,
 		"DELETE /users/{id}": true,
-		"ANY /health":       true,
+		"ANY /health":        true,
 		"GET /products/{id}": true,
 	}
 
@@ -368,14 +368,14 @@ func TestGorillaExtractor_Basic(t *testing.T) {
 	// GET /api/v1/items, GET /api/v1/items/{id} (subrouter with PathPrefix + .Methods())
 	// GET /admin/dashboard (nested subrouter)
 	expected := map[string]bool{
-		"GET /users":              true,
-		"POST /users":             true,
-		"GET /users/{id}":         true,
-		"DELETE /users/{id}":      true,
-		"ANY /health":             true,
-		"GET /api/v1/items":       true,
-		"GET /api/v1/items/{id}":  true,
-		"GET /admin/dashboard":    true,
+		"GET /users":             true,
+		"POST /users":            true,
+		"GET /users/{id}":        true,
+		"DELETE /users/{id}":     true,
+		"ANY /health":            true,
+		"GET /api/v1/items":      true,
+		"GET /api/v1/items/{id}": true,
+		"GET /admin/dashboard":   true,
 	}
 
 	if len(routes) != len(expected) {

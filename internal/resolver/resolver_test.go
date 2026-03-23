@@ -6,9 +6,9 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/dicki/godoclive/internal/extractor"
-	"github.com/dicki/godoclive/internal/loader"
-	"github.com/dicki/godoclive/internal/resolver"
+	"github.com/syst3mctl/godoclive/internal/extractor"
+	"github.com/syst3mctl/godoclive/internal/loader"
+	"github.com/syst3mctl/godoclive/internal/resolver"
 )
 
 func testdataDir(name string) string {
@@ -38,12 +38,12 @@ func TestResolveHandler_ChiBasic(t *testing.T) {
 	info := pkgs[0].TypesInfo
 
 	expectedHandlers := map[string]string{
-		"GET /users":          "ListUsers",
-		"POST /users":         "CreateUser",
-		"GET /users/{id}":     "GetUser",
-		"DELETE /users/{id}":  "DeleteUser",
-		"GET /v1/users/{id}":  "GetUserV1",
-		"POST /v2/users":      "CreateUserV2",
+		"GET /users":         "ListUsers",
+		"POST /users":        "CreateUser",
+		"GET /users/{id}":    "GetUser",
+		"DELETE /users/{id}": "DeleteUser",
+		"GET /v1/users/{id}": "GetUserV1",
+		"POST /v2/users":     "CreateUserV2",
 	}
 
 	for _, route := range routes {
@@ -101,11 +101,11 @@ func TestResolveHandler_GinBasic(t *testing.T) {
 	info := pkgs[0].TypesInfo
 
 	expectedHandlers := map[string]string{
-		"GET /api/v1/items":          "ListItems",
-		"GET /api/v1/items/{id}":     "GetItem",
-		"POST /api/v1/items":         "CreateItem",
-		"DELETE /api/v1/items/{id}":  "DeleteItem",
-		"GET /api/v1/admin/users":    "ListUsers",
+		"GET /api/v1/items":         "ListItems",
+		"GET /api/v1/items/{id}":    "GetItem",
+		"POST /api/v1/items":        "CreateItem",
+		"DELETE /api/v1/items/{id}": "DeleteItem",
+		"GET /api/v1/admin/users":   "ListUsers",
 	}
 
 	for _, route := range routes {

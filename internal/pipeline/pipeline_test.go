@@ -5,8 +5,8 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/dicki/godoclive/internal/model"
-	"github.com/dicki/godoclive/internal/pipeline"
+	"github.com/syst3mctl/godoclive/internal/model"
+	"github.com/syst3mctl/godoclive/internal/pipeline"
 )
 
 func testdataDir(name string) string {
@@ -1288,7 +1288,6 @@ func TestPipeline_AccuracyReport(t *testing.T) {
 		t.Errorf("Route detection %.1f%% below 95%% target", routePct)
 	}
 
-
 }
 
 func pct(found, total int) float64 {
@@ -2166,4 +2165,3 @@ func TestPipeline_GorillaBasic_RegexParam(t *testing.T) {
 		t.Error("regex-constrained path should be normalized to {id}")
 	}
 }
-
