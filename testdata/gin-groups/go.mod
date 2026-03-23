@@ -1,4 +1,4 @@
-module github.com/syst3mctl/godoclive/testdata/gin-groups
+module github.com/dicki/godoclive/testdata/gin-groups
 
 go 1.23
 

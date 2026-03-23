@@ -5,8 +5,8 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/syst3mctl/godoclive/internal/model"
-	"github.com/syst3mctl/godoclive/internal/pipeline"
+	"github.com/dicki/godoclive/internal/model"
+	"github.com/dicki/godoclive/internal/pipeline"
 )
 
 func testdataDir(name string) string {

@@ -1,4 +1,4 @@
-module github.com/syst3mctl/godoclive/testdata/gin-helpers
+module github.com/dicki/godoclive/testdata/gin-helpers
 
 go 1.23
 

@@ -1,4 +1,4 @@
-module github.com/syst3mctl/godoclive/testdata/fiber-basic
+module github.com/dicki/godoclive/testdata/fiber-basic
 
 go 1.21
 

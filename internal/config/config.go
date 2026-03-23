@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/syst3mctl/godoclive/internal/model"
+	"github.com/dicki/godoclive/internal/model"
 	"gopkg.in/yaml.v3"
 )
 

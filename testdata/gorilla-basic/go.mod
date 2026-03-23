@@ -1,4 +1,4 @@
-module github.com/syst3mctl/godoclive/testdata/gorilla-basic
+module github.com/dicki/godoclive/testdata/gorilla-basic
 
 go 1.22
 

@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/syst3mctl/godoclive/internal/model"
+	"github.com/dicki/godoclive/internal/model"
 )
 
 // promoteStructFields resolves a struct type and converts its fields into
