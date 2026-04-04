@@ -348,8 +348,23 @@
     return null;
   }
 
-  // Base URL — fixed from injected data; not user-editable.
+  // Base URL — can be overridden by the environment switcher.
   var baseUrl = data.baseUrl || 'http://localhost:8080';
+
+  // Environment switcher
+  var environments = data.environments || [];
+  var ENV_KEY = 'gdl-env-url';
+
+  // If no environments defined, create one from baseUrl.
+  if (environments.length === 0 && baseUrl) {
+    environments.push({ url: baseUrl, description: 'Default' });
+  }
+
+  // Restore saved URL if it exists.
+  var savedEnv = localStorage.getItem(ENV_KEY);
+  if (savedEnv) {
+    baseUrl = savedEnv;
+  }
 
   // ============================================================
   // Helpers
@@ -396,6 +411,13 @@
   var ICON_PERSON = '<svg aria-hidden="true" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5" r="2.5" stroke="currentColor" stroke-width="1.5"/><path d="M3 14c0-2.76 2.24-5 5-5s5 2.24 5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
   var ICON_COPY = '<svg aria-hidden="true" viewBox="0 0 16 16" fill="none"><rect x="5" y="5" width="8" height="8" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M3 11V4a1 1 0 011-1h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
   var ICON_CHECK = '<svg aria-hidden="true" viewBox="0 0 16 16" fill="none"><path d="M3 8.5l3.5 3.5 6.5-8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  var ICON_EYE = '<svg aria-hidden="true" viewBox="0 0 16 16" fill="none">'
+    + '<path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z" stroke="currentColor" stroke-width="1.5"/>'
+    + '<circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/></svg>';
+  var ICON_EYE_OFF = '<svg aria-hidden="true" viewBox="0 0 16 16" fill="none">'
+    + '<path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z" stroke="currentColor" stroke-width="1.5" opacity="0.3"/>'
+    + '<circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.5" opacity="0.3"/>'
+    + '<path d="M2 14L14 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
 
   function authIcon(scheme) {
     if (scheme === 'bearer') return ICON_LOCK;
@@ -594,6 +616,39 @@
   }
 
   var collapsedState = loadCollapsed();
+
+  // ============================================================
+  // Hidden endpoints persistence
+  // ============================================================
+  var HIDDEN_KEY = 'gdl-hidden';
+
+  function loadHidden() {
+    try { return JSON.parse(localStorage.getItem(HIDDEN_KEY)) || {}; }
+    catch (e) { return {}; }
+  }
+
+  function saveHidden(state) {
+    localStorage.setItem(HIDDEN_KEY, JSON.stringify(state));
+  }
+
+  var hiddenState = loadHidden();
+  var showHidden = false;
+
+  function isHidden(ep) {
+    return hiddenState[ep.method + ' ' + ep.path] === true;
+  }
+
+  function toggleHidden(ep) {
+    var key = ep.method + ' ' + ep.path;
+    if (hiddenState[key]) { delete hiddenState[key]; }
+    else { hiddenState[key] = true; }
+    saveHidden(hiddenState);
+  }
+
+  function hiddenCount() {
+    return Object.keys(hiddenState).length;
+  }
+
   var grouped = groupByTag(data.endpoints);
   var sidebarGroupsEl = document.getElementById('sidebar-groups');
   var sidebarFooterEl = document.getElementById('sidebar-footer');
@@ -616,9 +671,11 @@
       html += '<div class="group-content' + (isCollapsed ? ' collapsed' : '') + '" data-group-content="' + esc(tag) + '">';
       eps.forEach(function (ep, idx) {
         var epId = tag + '-' + idx;
-        html += '<div class="endpoint-row" data-method="' + ep.method + '" data-ep-id="' + epId + '" tabindex="0" role="link" aria-label="' + ep.method + ' ' + esc(ep.path) + '">';
+        var hidden = isHidden(ep);
+        html += '<div class="endpoint-row' + (hidden ? ' endpoint-hidden' : '') + '" data-method="' + ep.method + '" data-ep-id="' + epId + '" tabindex="0" role="link" aria-label="' + ep.method + ' ' + esc(ep.path) + '">';
         html += '<span class="method-badge ' + methodClass(ep.method) + '">' + badgeText(ep.method) + '</span>';
         html += '<span class="endpoint-path">' + renderSidebarPath(ep.path) + '</span>';
+        html += '<button class="visibility-toggle' + (hidden ? ' is-hidden' : '') + '" data-vis-toggle="' + epId + '" aria-label="' + (hidden ? 'Show' : 'Hide') + ' endpoint" title="' + (hidden ? 'Show' : 'Hide') + ' endpoint">' + (hidden ? ICON_EYE_OFF : ICON_EYE) + '</button>';
         html += '</div>';
       });
       html += '</div></div>';
@@ -642,10 +699,77 @@
       footerHtml += '&#9888; ' + unresolvedCount + ' partially resolved';
       footerHtml += '</div>';
     }
+    var hCount = hiddenCount();
+    if (hCount > 0) {
+      footerHtml += '<div class="sidebar-footer-hidden" id="hidden-filter" role="button" tabindex="0">';
+      footerHtml += ICON_EYE + ' ' + (showHidden ? 'Showing' : 'Show') + ' ' + hCount + ' hidden';
+      footerHtml += '</div>';
+    }
     sidebarFooterEl.innerHTML = footerHtml;
   }
 
   buildSidebar();
+
+  // ============================================================
+  // Environment switcher setup
+  // ============================================================
+  var envSelect = document.getElementById('env-select');
+  var envCustomInput = document.getElementById('env-custom-input');
+  var envEditBtn = document.getElementById('env-edit-btn');
+
+  function buildEnvDropdown() {
+    if (!envSelect) return;
+    var html = '';
+    environments.forEach(function(env) {
+      var selected = (env.url === baseUrl) ? ' selected' : '';
+      html += '<option value="' + esc(env.url) + '"' + selected + '>';
+      html += esc(env.description || env.url) + '</option>';
+    });
+    html += '<option value="__custom__">Custom...</option>';
+    envSelect.innerHTML = html;
+
+    // If current baseUrl isn't in the list, select Custom.
+    var found = environments.some(function(e) { return e.url === baseUrl; });
+    if (!found) {
+      envSelect.value = '__custom__';
+      envCustomInput.style.display = '';
+      envCustomInput.value = baseUrl;
+    }
+  }
+  buildEnvDropdown();
+
+  if (envSelect) {
+    envSelect.addEventListener('change', function() {
+      if (envSelect.value === '__custom__') {
+        envCustomInput.style.display = '';
+        envCustomInput.focus();
+      } else {
+        envCustomInput.style.display = 'none';
+        baseUrl = envSelect.value;
+        localStorage.setItem(ENV_KEY, baseUrl);
+      }
+    });
+  }
+
+  if (envCustomInput) {
+    envCustomInput.addEventListener('change', function() {
+      var val = envCustomInput.value.trim();
+      if (val) {
+        baseUrl = val.replace(/\/+$/, '');
+        localStorage.setItem(ENV_KEY, baseUrl);
+      }
+    });
+  }
+
+  if (envEditBtn) {
+    envEditBtn.addEventListener('click', function() {
+      envSelect.value = '__custom__';
+      envCustomInput.style.display = '';
+      envCustomInput.value = baseUrl;
+      envCustomInput.focus();
+      envCustomInput.select();
+    });
+  }
 
   // ============================================================
   // Build endpoint cards — full spec
@@ -657,7 +781,7 @@
       eps.forEach(function (ep, idx) {
         var epId = tag + '-' + idx;
         var mc = methodClass(ep.method);
-        html += '<div class="endpoint-card" id="card-' + epId + '" data-ep-id="' + epId + '">';
+        html += '<div class="endpoint-card' + (isHidden(ep) ? ' endpoint-card-hidden' : '') + '" id="card-' + epId + '" data-ep-id="' + epId + '">';
 
         // === Card Header ===
         html += '<div class="card-header">';
@@ -1070,6 +1194,7 @@
   // Render everything
   // ============================================================
   buildCards();
+  applyHiddenState();
   document.getElementById('project-name').textContent = data.projectName || 'My API';
   document.getElementById('project-version').textContent = data.version || '';
 
@@ -1493,6 +1618,7 @@
   // Sidebar endpoint click -> scroll to card
   // ============================================================
   sidebarGroupsEl.addEventListener('click', function (e) {
+    if (e.target.closest('[data-vis-toggle]')) return; // handled by visibility toggle listener
     var row = e.target.closest('.endpoint-row');
     if (!row) return;
     var epId = row.getAttribute('data-ep-id');
@@ -1655,6 +1781,8 @@
         }
       });
     }
+
+    applyHiddenState();
   }
 
   // ============================================================
@@ -1667,6 +1795,97 @@
     var eps = grouped.groups[tag];
     return eps ? eps[idx] : null;
   }
+
+  // ============================================================
+  // Visibility toggle — hide/show individual endpoints
+  // ============================================================
+  function applyHiddenState() {
+    sidebarGroupsEl.querySelectorAll('.endpoint-row').forEach(function (row) {
+      var ep = findEndpoint(row.getAttribute('data-ep-id'));
+      if (!ep) return;
+      row.style.display = (isHidden(ep) && !showHidden) ? 'none' : '';
+    });
+
+    contentInner.querySelectorAll('.endpoint-card').forEach(function (card) {
+      var ep = findEndpoint(card.getAttribute('data-ep-id'));
+      if (!ep) return;
+      card.style.display = (isHidden(ep) && !showHidden) ? 'none' : '';
+    });
+
+    // Hide sidebar groups whose visible rows are all gone
+    sidebarGroupsEl.querySelectorAll('.sidebar-group').forEach(function (groupEl) {
+      var rows = groupEl.querySelectorAll('.endpoint-row');
+      var anyVisible = false;
+      rows.forEach(function (row) {
+        if (row.style.display !== 'none' && !row.classList.contains('hidden')) anyVisible = true;
+      });
+      groupEl.style.display = anyVisible ? '' : 'none';
+    });
+  }
+
+  function updateHiddenFooter() {
+    var hCount = hiddenCount();
+    var existing = sidebarFooterEl.querySelector('#hidden-filter');
+    if (hCount === 0) {
+      if (existing) existing.parentNode.removeChild(existing);
+      return;
+    }
+    var text = ICON_EYE + ' ' + (showHidden ? 'Showing' : 'Show') + ' ' + hCount + ' hidden';
+    if (existing) {
+      existing.innerHTML = text;
+    } else {
+      var div = document.createElement('div');
+      div.className = 'sidebar-footer-hidden';
+      div.id = 'hidden-filter';
+      div.setAttribute('role', 'button');
+      div.setAttribute('tabindex', '0');
+      div.innerHTML = text;
+      sidebarFooterEl.appendChild(div);
+    }
+  }
+
+  sidebarGroupsEl.addEventListener('click', function (e) {
+    var visBtn = e.target.closest('[data-vis-toggle]');
+    if (!visBtn) return;
+
+    var epId = visBtn.getAttribute('data-vis-toggle');
+    var ep = findEndpoint(epId);
+    if (!ep) return;
+
+    toggleHidden(ep);
+    var nowHidden = isHidden(ep);
+
+    // Update sidebar row class and button
+    var row = visBtn.closest('.endpoint-row');
+    if (row) row.classList.toggle('endpoint-hidden', nowHidden);
+    visBtn.classList.toggle('is-hidden', nowHidden);
+    visBtn.innerHTML = nowHidden ? ICON_EYE_OFF : ICON_EYE;
+    visBtn.setAttribute('aria-label', (nowHidden ? 'Show' : 'Hide') + ' endpoint');
+    visBtn.setAttribute('title', (nowHidden ? 'Show' : 'Hide') + ' endpoint');
+
+    // Update card class
+    var card = document.getElementById('card-' + epId);
+    if (card) card.classList.toggle('endpoint-card-hidden', nowHidden);
+
+    updateHiddenFooter();
+    applyHiddenState();
+  });
+
+  // "Show hidden" footer button
+  sidebarFooterEl.addEventListener('click', function (e) {
+    var btn = e.target.closest('#hidden-filter');
+    if (!btn) return;
+    showHidden = !showHidden;
+    updateHiddenFooter();
+    applyHiddenState();
+  });
+
+  sidebarFooterEl.addEventListener('keydown', function (e) {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.id === 'hidden-filter') {
+      e.preventDefault();
+      e.target.click();
+    }
+  });
 
   // ============================================================
   // Unresolved filter (sidebar footer)
@@ -1715,6 +1934,7 @@
       if (ep.unresolved && ep.unresolved.length > 0) card.classList.remove('hidden');
       else card.classList.add('hidden');
     });
+    applyHiddenState();
   }
 
   // ============================================================

@@ -426,6 +426,126 @@ input, textarea, select {
 }
 
 /* ============================================================
+   Environment Switcher
+   ============================================================ */
+.env-switcher {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 4px;
+}
+
+.env-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 24px 4px 8px;
+  font-size: 12px;
+  font-family: var(--font-ui);
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  background-size: 10px;
+  max-width: 160px;
+}
+
+.env-select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.env-custom-input {
+  background: var(--surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  width: 200px;
+}
+
+.env-custom-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.env-edit-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+@media (max-width: 768px) {
+  .env-switcher {
+    display: none;
+  }
+}
+
+/* ============================================================
+   Visibility toggle (hide/show endpoints)
+   ============================================================ */
+.visibility-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 2px;
+  margin-left: auto;
+  flex-shrink: 0;
+  border-radius: 4px;
+  width: 20px;
+  height: 20px;
+}
+
+.visibility-toggle svg {
+  width: 14px;
+  height: 14px;
+}
+
+.visibility-toggle:hover {
+  color: var(--text-primary);
+  background: var(--border);
+}
+
+.visibility-toggle.is-hidden {
+  display: flex;
+  color: var(--text-secondary);
+  opacity: 0.5;
+}
+
+.endpoint-row:hover .visibility-toggle {
+  display: flex;
+}
+
+.endpoint-row.endpoint-hidden {
+  opacity: 0.4;
+}
+
+.endpoint-card-hidden {
+  opacity: 0.5;
+  border-left: 3px solid var(--text-secondary);
+}
+
+.sidebar-footer-hidden {
+  font-size: 11px;
+  color: var(--text-secondary);
+  padding: 4px 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.sidebar-footer-hidden:hover {
+  color: var(--text-primary);
+}
+
+/* ============================================================
    Sidebar Groups (Section 10.4.1)
    ============================================================ */
 .sidebar-group {

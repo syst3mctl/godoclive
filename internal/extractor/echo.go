@@ -32,6 +32,7 @@ func (e *EchoExtractor) Extract(pkgs []*packages.Package) ([]RawRoute, error) {
 			fpath := pkg.Fset.Position(file.Pos()).Filename
 			w := &echoWalker{
 				fset:       pkg.Fset,
+				astFile:    file,
 				file:       fpath,
 				info:       pkg.TypesInfo,
 				routerVars: make(map[string]bool),
@@ -112,6 +113,7 @@ type echoGroup struct {
 
 type echoWalker struct {
 	fset       *token.FileSet
+	astFile    *ast.File
 	file       string
 	info       *types.Info
 	routes     []RawRoute
@@ -251,6 +253,9 @@ func (w *echoWalker) processCall(call *ast.CallExpr, prefix string, scopeMW *[]a
 
 // addRoute records a route from an Echo registration call.
 func (w *echoWalker) addRoute(call *ast.CallExpr, prefix string, middlewares []ast.Expr, method string) {
+	if hasIgnoreDirective(w.fset, w.astFile, call.Pos()) {
+		return
+	}
 	patternArg := stringLitValue(call.Args[0])
 	fullPath := NormalizeEchoPath(joinPath(prefix, patternArg))
 	handler := call.Args[1]

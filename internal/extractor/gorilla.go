@@ -27,6 +27,7 @@ func (e *GorillaExtractor) Extract(pkgs []*packages.Package) ([]RawRoute, error)
 			fpath := pkg.Fset.Position(file.Pos()).Filename
 			w := &gorillaWalker{
 				fset:       pkg.Fset,
+				astFile:    file,
 				file:       fpath,
 				info:       pkg.TypesInfo,
 				routerVars: make(map[string]string),
@@ -94,6 +95,7 @@ func usesGorillaMux(fn *ast.FuncDecl, info *types.Info) bool {
 // gorillaWalker extracts gorilla/mux routes from a single file.
 type gorillaWalker struct {
 	fset       *token.FileSet
+	astFile    *ast.File
 	file       string
 	info       *types.Info
 	routes     []RawRoute
@@ -211,6 +213,9 @@ func (w *gorillaWalker) processCall(call *ast.CallExpr, prefix string, scopeMW *
 
 // addRoute records a route without .Methods() chain (ANY method).
 func (w *gorillaWalker) addRoute(call *ast.CallExpr, prefix string, middlewares []ast.Expr) {
+	if hasIgnoreDirective(w.fset, w.astFile, call.Pos()) {
+		return
+	}
 	patternArg := stringLitValue(call.Args[0])
 	fullPath := NormalizeGorillaPath(joinPath(prefix, patternArg))
 	handler := call.Args[1]
@@ -228,6 +233,9 @@ func (w *gorillaWalker) addRoute(call *ast.CallExpr, prefix string, middlewares 
 
 // addChainedRoute records routes from a HandleFunc/Handle call chained with .Methods().
 func (w *gorillaWalker) addChainedRoute(call *ast.CallExpr, prefix string, middlewares []ast.Expr, methods []string) {
+	if hasIgnoreDirective(w.fset, w.astFile, call.Pos()) {
+		return
+	}
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok || len(call.Args) < 2 {
 		return

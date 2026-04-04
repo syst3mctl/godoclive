@@ -48,6 +48,7 @@ func (e *FiberExtractor) Extract(pkgs []*packages.Package) ([]RawRoute, error) {
 			fpath := pkg.Fset.Position(file.Pos()).Filename
 			w := &fiberWalker{
 				fset:    pkg.Fset,
+				astFile: file,
 				file:    fpath,
 				info:    pkg.TypesInfo,
 				appVars: make(map[string]bool),
@@ -125,10 +126,11 @@ type fiberGroup struct {
 
 type fiberWalker struct {
 	fset    *token.FileSet
+	astFile *ast.File
 	file    string
 	info    *types.Info
 	routes  []RawRoute
-	appVars map[string]bool       // variable is *fiber.App instance
+	appVars map[string]bool        // variable is *fiber.App instance
 	groups  map[string]*fiberGroup // variable name → group state
 }
 
@@ -263,6 +265,9 @@ func (w *fiberWalker) processCall(call *ast.CallExpr, prefix string, scopeMW *[]
 // Fiber routes are variadic: app.Get(path, mw1, mw2, handler).
 // The handler is always the last arg; preceding args are inline middlewares.
 func (w *fiberWalker) addRoute(call *ast.CallExpr, prefix string, middlewares []ast.Expr, method string) {
+	if hasIgnoreDirective(w.fset, w.astFile, call.Pos()) {
+		return
+	}
 	patternArg := stringLitValue(call.Args[0])
 	fullPath := NormalizeFiberPath(joinPath(prefix, patternArg))
 

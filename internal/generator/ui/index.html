@@ -54,6 +54,21 @@
     </div>
 
     <div class="topbar-right">
+      <div class="env-switcher" id="env-switcher">
+        <select class="env-select" id="env-select" aria-label="Select environment">
+          <!-- Populated by app.js -->
+        </select>
+        <input type="text" class="env-custom-input" id="env-custom-input"
+               placeholder="Custom URL..." aria-label="Custom base URL"
+               style="display:none">
+        <button class="topbar-btn env-edit-btn" id="env-edit-btn"
+                title="Edit URL" aria-label="Edit base URL">
+          <svg aria-hidden="true" viewBox="0 0 16 16" fill="none">
+            <path d="M11.5 1.5l3 3L5 14H2v-3L11.5 1.5z" stroke="currentColor"
+                  stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
       <button class="authorize-btn" id="authorize-btn" title="Authorize" aria-label="Authorize API access">
         <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
           <rect x="3" y="7" width="10" height="7" rx="1.5" stroke="currentColor" stroke-width="1.5"/>

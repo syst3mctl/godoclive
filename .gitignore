@@ -35,6 +35,7 @@ testdata/mixed-auth/mixed-auth
 godoclive-growth-campaign.md
 CLAUDE.md
 technical_spec.md
+agent-prompts.md
 
 # test folders
 /gin-e2e-test
