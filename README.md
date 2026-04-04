@@ -64,6 +64,35 @@ GoDoc Live has no drift problem — it reads the source of truth directly.
 | **Auth Detection** | JWT bearer, API key, and basic auth from middleware body scanning |
 | **Auto Naming** | Summaries and tags inferred from handler names (`GetUserByID` → "Get User By ID") |
 
+## UI Features
+
+### Environment URL Switcher
+
+A dropdown in the topbar lets you switch base URLs on the fly — curl snippets and the Try It panel update immediately. Define environments in `.godoclive.yaml`:
+
+```yaml
+openapi:
+  servers:
+    - url: "http://localhost:8080"
+      description: "Local"
+    - url: "https://staging-api.example.com"
+      description: "Staging"
+    - url: "https://api.example.com"
+      description: "Production"
+```
+
+If no servers are configured, a single **Default** entry is created from `--base-url`. The selected URL persists across page refreshes via `localStorage`. A pencil button lets you type a fully custom URL at any time.
+
+### Client-Side Route Visibility
+
+Hide individual endpoints directly from the sidebar — useful when you want to focus on a subset of routes without permanently excluding them from the source.
+
+- Hover any sidebar row → an eye icon appears
+- Click it → the endpoint disappears from the sidebar and content area
+- The sidebar footer shows **Show N hidden** — click to reveal hidden routes dimmed in place
+- Click the eye-off icon on a revealed route to unhide it
+- Hidden state is keyed by `"METHOD /path"` and persisted in `localStorage`, surviving page refreshes and doc regeneration
+
 ## Supported Routers
 
 | Router | Status | Features |
@@ -153,6 +182,27 @@ godoclive validate --json ./...
 | `--json` | `false` | Output as JSON |
 | `--verbose` | `false` | Show full unresolved list per endpoint |
 
+## Ignoring Routes
+
+### `//godoclive:ignore` directive
+
+Add a `//godoclive:ignore` (or `//godoclive:skip`) comment directly in your source to permanently exclude a route from all output — HTML docs, OpenAPI spec, and analysis. The route is filtered at extraction time and never enters the pipeline.
+
+```go
+//godoclive:ignore
+r.Get("/debug/pprof", pprof.Index)
+
+r.Post("/internal/webhook", webhookHandler) //godoclive:ignore
+```
+
+Both placement styles are supported:
+- **Preceding line** — comment on the line immediately above the route registration
+- **Trailing comment** — comment on the same line as the route registration
+
+The directive works across all supported routers (chi, gin, gorilla/mux, echo, fiber, net/http stdlib).
+
+> For pattern-based exclusion (e.g. all routes matching `GET /internal/*`), use the `exclude` field in `.godoclive.yaml` instead.
+
 ## Configuration
 
 ### `.env` file
@@ -176,7 +226,8 @@ version: "v2.1.0"
 base_url: "https://api.example.com"
 theme: "dark"
 
-# Exclude endpoints from documentation
+# Exclude endpoints by pattern (glob on "METHOD /path")
+# Use //godoclive:ignore in source for per-route exclusion instead.
 exclude:
   - "GET /internal/*"
   - "* /debug/*"
@@ -320,6 +371,7 @@ Single-file mode writes more memory (≈10× more per run) because all CSS, JS, 
 | **2** | OpenAPI 3.1.0 export (`openapi` command + `--openapi` flag) | Done |
 | **2b** | echo | Done |
 | **2c** | fiber | Done |
+| **2d** | Environment URL switcher, client-side route visibility toggle, `//godoclive:ignore` directive | Done |
 | **3** | VS Code extension, GitHub Action integration | Planned |
 | **4** | Multi-service gateway view, API version diff | Planned |
 
