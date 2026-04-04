@@ -14,12 +14,13 @@ import (
 
 // GeneratorConfig holds configuration for documentation generation.
 type GeneratorConfig struct {
-	OutputPath string // Output directory or file path (default: ./docs)
-	Format     string // "folder" or "single" (default: "folder")
-	Title      string // Project title displayed in docs
-	Version    string // Project version displayed in docs
-	BaseURL    string // Pre-fill base URL in Try It
-	Theme      string // "light" or "dark" (default: "light")
+	OutputPath   string     // Output directory or file path (default: ./docs)
+	Format       string     // "folder" or "single" (default: "folder")
+	Title        string     // Project title displayed in docs
+	Version      string     // Project version displayed in docs
+	BaseURL      string     // Pre-fill base URL in Try It
+	Theme        string     // "light" or "dark" (default: "light")
+	Environments []ApiEnv   // Environment URL list for the switcher dropdown
 }
 
 // Generate transforms analyzed endpoints into documentation output.
@@ -50,10 +51,17 @@ func Generate(endpoints []model.EndpointDef, cfg GeneratorConfig) error {
 
 // apiData is the JSON structure injected as window.API_DATA.
 type apiData struct {
-	ProjectName string        `json:"projectName"`
-	Version     string        `json:"version"`
-	BaseURL     string        `json:"baseUrl"`
-	Endpoints   []apiEndpoint `json:"endpoints"`
+	ProjectName  string        `json:"projectName"`
+	Version      string        `json:"version"`
+	BaseURL      string        `json:"baseUrl"`
+	Environments []ApiEnv      `json:"environments,omitempty"`
+	Endpoints    []apiEndpoint `json:"endpoints"`
+}
+
+// ApiEnv represents a named environment URL for the switcher dropdown.
+type ApiEnv struct {
+	URL         string `json:"url"`
+	Description string `json:"description"`
 }
 
 type apiEndpoint struct {
@@ -128,10 +136,11 @@ func buildAPIData(endpoints []model.EndpointDef, cfg GeneratorConfig) apiData {
 	}
 
 	ad := apiData{
-		ProjectName: title,
-		Version:     ver,
-		BaseURL:     cfg.BaseURL,
-		Endpoints:   make([]apiEndpoint, 0, len(endpoints)),
+		ProjectName:  title,
+		Version:      ver,
+		BaseURL:      cfg.BaseURL,
+		Environments: cfg.Environments,
+		Endpoints:    make([]apiEndpoint, 0, len(endpoints)),
 	}
 
 	for _, ep := range endpoints {

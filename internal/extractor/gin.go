@@ -34,9 +34,10 @@ func (e *GinExtractor) Extract(pkgs []*packages.Package) ([]RawRoute, error) {
 		for _, file := range pkg.Syntax {
 			fpath := pkg.Fset.Position(file.Pos()).Filename
 			w := &ginWalker{
-				fset:   pkg.Fset,
-				file:   fpath,
-				groups: make(map[string]*ginGroup),
+				fset:    pkg.Fset,
+				astFile: file,
+				file:    fpath,
+				groups:  make(map[string]*ginGroup),
 			}
 			for _, decl := range file.Decls {
 				fn, ok := decl.(*ast.FuncDecl)
@@ -76,10 +77,11 @@ type ginGroup struct {
 
 // ginWalker extracts gin routes from a single file.
 type ginWalker struct {
-	fset   *token.FileSet
-	file   string
-	routes []RawRoute
-	groups map[string]*ginGroup // varName → group info
+	fset    *token.FileSet
+	astFile *ast.File
+	file    string
+	routes  []RawRoute
+	groups  map[string]*ginGroup // varName → group info
 }
 
 // walkBlock walks a list of statements in two passes:
@@ -189,6 +191,9 @@ func (w *ginWalker) isGroup(name string) bool {
 
 // addRoute records a discovered gin route with path normalization.
 func (w *ginWalker) addRoute(method, prefix string, call *ast.CallExpr, middlewares []ast.Expr) {
+	if hasIgnoreDirective(w.fset, w.astFile, call.Pos()) {
+		return
+	}
 	pathArg := stringLitValue(call.Args[0])
 	fullPath := joinPath(prefix, pathArg)
 	fullPath = normalizeGinPath(fullPath)

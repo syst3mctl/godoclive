@@ -24,6 +24,7 @@ func (e *StdlibExtractor) Extract(pkgs []*packages.Package) ([]RawRoute, error) 
 			fpath := pkg.Fset.Position(file.Pos()).Filename
 			w := &stdlibWalker{
 				fset:    pkg.Fset,
+				astFile: file,
 				file:    fpath,
 				muxVars: make(map[string]bool),
 			}
@@ -58,6 +59,7 @@ func isStdlibHTTPPackage(pkg *packages.Package) bool {
 // stdlibWalker extracts stdlib routes from a single file.
 type stdlibWalker struct {
 	fset    *token.FileSet
+	astFile *ast.File
 	file    string
 	routes  []RawRoute
 	muxVars map[string]bool // tracks variables assigned from http.NewServeMux()
@@ -133,6 +135,9 @@ func (w *stdlibWalker) processCall(call *ast.CallExpr, scopeMW []ast.Expr) {
 
 // addRoute parses the pattern string and records a route.
 func (w *stdlibWalker) addRoute(call *ast.CallExpr, middlewares []ast.Expr) {
+	if hasIgnoreDirective(w.fset, w.astFile, call.Pos()) {
+		return
+	}
 	pattern := stringLitValue(call.Args[0])
 	if pattern == "" {
 		return

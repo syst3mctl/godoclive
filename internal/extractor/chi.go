@@ -35,7 +35,7 @@ func (e *ChiExtractor) Extract(pkgs []*packages.Package) ([]RawRoute, error) {
 		}
 		for _, file := range pkg.Syntax {
 			fpath := pkg.Fset.Position(file.Pos()).Filename
-			w := &chiWalker{fset: pkg.Fset, file: fpath}
+			w := &chiWalker{fset: pkg.Fset, astFile: file, file: fpath}
 			// Walk entry-point functions (main, init) and any function that
 			// receives or returns a chi.Router / chi.Mux, since real-world
 			// apps commonly set up routes in setupRoutes() or similar helpers.
@@ -113,9 +113,10 @@ func isChiPackage(pkg *packages.Package) bool {
 
 // chiWalker extracts chi routes from a single file.
 type chiWalker struct {
-	fset   *token.FileSet
-	file   string
-	routes []RawRoute
+	fset    *token.FileSet
+	astFile *ast.File
+	file    string
+	routes  []RawRoute
 }
 
 // walkBlock walks a block statement looking for chi route registrations.
@@ -181,6 +182,9 @@ func (w *chiWalker) processCall(call *ast.CallExpr, prefix string, scopeMW *[]as
 
 // addRoute records a discovered route.
 func (w *chiWalker) addRoute(method, prefix string, call *ast.CallExpr, middlewares []ast.Expr) {
+	if hasIgnoreDirective(w.fset, w.astFile, call.Pos()) {
+		return
+	}
 	pathArg := stringLitValue(call.Args[0])
 	fullPath := joinPath(prefix, pathArg)
 

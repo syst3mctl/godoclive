@@ -60,6 +60,9 @@ var (
 	flagValidateVerbose bool
 )
 
+// exclude flags (shared across commands)
+var flagExclude []string
+
 // openapi flags
 var (
 	flagOpenAPIOutput   string
@@ -112,14 +115,17 @@ func init() {
 	generateCmd.Flags().StringVar(&flagTitle, "title", "", "Override project title displayed in docs")
 	generateCmd.Flags().StringVar(&flagBaseURL, "base-url", "", "Pre-fill base URL in Try It")
 	generateCmd.Flags().StringVar(&flagTheme, "theme", "", "Theme: light | dark (default: light)")
+	generateCmd.Flags().StringArrayVar(&flagExclude, "exclude", nil, `Exclude routes matching "METHOD /path" pattern (repeatable, supports globs)`)
 
 	// analyze flags
 	analyzeCmd.Flags().BoolVar(&flagAnalyzeJSON, "json", false, "Output contract as JSON (machine-readable)")
 	analyzeCmd.Flags().BoolVar(&flagAnalyzeVerbose, "verbose", false, "Show full Unresolved list per endpoint")
+	analyzeCmd.Flags().StringArrayVar(&flagExclude, "exclude", nil, `Exclude routes matching "METHOD /path" pattern (repeatable, supports globs)`)
 
 	// validate flags
 	validateCmd.Flags().BoolVar(&flagValidateJSON, "json", false, "Output as JSON")
 	validateCmd.Flags().BoolVar(&flagValidateVerbose, "verbose", false, "Show full Unresolved list per endpoint")
+	validateCmd.Flags().StringArrayVar(&flagExclude, "exclude", nil, `Exclude routes matching "METHOD /path" pattern (repeatable, supports globs)`)
 
 	// generate --openapi flag
 	generateCmd.Flags().StringVar(&flagGenerateOpenAPI, "openapi", "", "Also generate OpenAPI spec at this path")
@@ -131,6 +137,7 @@ func init() {
 	watchCmd.Flags().StringVar(&flagTitle, "title", "", "Override project title displayed in docs")
 	watchCmd.Flags().StringVar(&flagBaseURL, "base-url", "", "Pre-fill base URL in Try It")
 	watchCmd.Flags().StringVar(&flagTheme, "theme", "", "Theme: light | dark (default: light)")
+	watchCmd.Flags().StringArrayVar(&flagExclude, "exclude", nil, `Exclude routes matching "METHOD /path" pattern (repeatable, supports globs)`)
 
 	// openapi flags
 	openapiCmd.Flags().StringVar(&flagOpenAPIOutput, "output", "./openapi.json", "Output file path (.json or .yaml)")
@@ -194,6 +201,14 @@ func runPipeline(pattern string) ([]model.EndpointDef, error) {
 	cfg, err := config.LoadConfig(dir)
 	if err != nil {
 		return nil, fmt.Errorf("loading config: %w", err)
+	}
+
+	// Merge --exclude CLI flags into config exclusions.
+	if len(flagExclude) > 0 {
+		if cfg == nil {
+			cfg = &config.Config{}
+		}
+		cfg.Exclude = append(cfg.Exclude, flagExclude...)
 	}
 
 	return pipeline.RunPipeline(dir, pkgPattern, cfg)
@@ -460,13 +475,26 @@ func buildGeneratorConfig(pattern string) generator.GeneratorConfig {
 	cfg, _ := config.LoadConfig(absDir)
 	env := loadDotEnv(absDir)
 
+	baseURL := coalesce(flagBaseURL, env["API_URL"], cfgStr(cfg, func(c *config.Config) string { return c.BaseURL }))
+
+	// Build environment list from config servers.
+	var envs []generator.ApiEnv
+	if cfg != nil && len(cfg.OpenAPI.Servers) > 0 {
+		for _, s := range cfg.OpenAPI.Servers {
+			envs = append(envs, generator.ApiEnv{URL: s.URL, Description: s.Description})
+		}
+	} else if baseURL != "" {
+		envs = []generator.ApiEnv{{URL: baseURL, Description: "Default"}}
+	}
+
 	return generator.GeneratorConfig{
-		OutputPath: flagOutput,
-		Format:     flagFormat,
-		Title:      coalesce(flagTitle, cfgStr(cfg, func(c *config.Config) string { return c.Title })),
-		Version:    cfgStr(cfg, func(c *config.Config) string { return c.Version }),
-		BaseURL:    coalesce(flagBaseURL, env["API_URL"], cfgStr(cfg, func(c *config.Config) string { return c.BaseURL })),
-		Theme:      coalesce(flagTheme, cfgStr(cfg, func(c *config.Config) string { return c.Theme }), "light"),
+		OutputPath:   flagOutput,
+		Format:       flagFormat,
+		Title:        coalesce(flagTitle, cfgStr(cfg, func(c *config.Config) string { return c.Title })),
+		Version:      cfgStr(cfg, func(c *config.Config) string { return c.Version }),
+		BaseURL:      baseURL,
+		Theme:        coalesce(flagTheme, cfgStr(cfg, func(c *config.Config) string { return c.Theme }), "light"),
+		Environments: envs,
 	}
 }
 
