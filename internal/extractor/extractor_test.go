@@ -347,6 +347,58 @@ func TestStdlibExtractor_Basic(t *testing.T) {
 	}
 }
 
+func TestStdlibExtractor_Conditional(t *testing.T) {
+	dir := testdataDir("stdlib-conditional")
+	pkgs, err := loader.LoadPackages(dir, "./...")
+	if err != nil {
+		t.Fatalf("LoadPackages failed: %v", err)
+	}
+
+	ext := &extractor.StdlibExtractor{}
+	routes, err := ext.Extract(pkgs)
+	if err != nil {
+		t.Fatalf("Extract failed: %v", err)
+	}
+
+	// Every route below is registered inside an if/else/switch block except
+	// GET /v1/auth/login (top level). GET /metrics is suppressed by a
+	// //godoclive:ignore directive; GET /livez sits directly below it and must
+	// still be discovered (the directive applies to a single statement only).
+	expected := map[string]bool{
+		"GET /v1/auth/login":            true,
+		"POST /v1/sessions":             true,
+		"GET /v1/sessions/{id}":         true,
+		"GET /v1/sessions/{id}/receipt": true,
+		"GET /v1/users/me":              true,
+		"GET /v1/users/{id}":            true,
+		"DELETE /v1/users/{id}":         true,
+		"GET /v1/status":                true,
+		"GET /livez":                    true,
+	}
+
+	if len(routes) != len(expected) {
+		t.Errorf("expected %d routes, got %d", len(expected), len(routes))
+		for _, r := range routes {
+			t.Logf("  found: %s %s (line %d)", r.Method, r.Path, r.Line)
+		}
+	}
+
+	for _, r := range routes {
+		key := r.Method + " " + r.Path
+		if key == "GET /metrics" {
+			t.Errorf("route GET /metrics should have been ignored")
+		}
+		if !expected[key] {
+			t.Errorf("unexpected route: %s", key)
+		}
+		delete(expected, key)
+	}
+
+	for key := range expected {
+		t.Errorf("missing route: %s", key)
+	}
+}
+
 // --- Gorilla extractor tests ---
 
 func TestGorillaExtractor_Basic(t *testing.T) {

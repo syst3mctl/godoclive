@@ -135,6 +135,11 @@ func (w *echoWalker) walkBlock(stmts []ast.Stmt, prefix string, parentMW []ast.E
 				continue
 			}
 			w.processCall(call, prefix, &scopeMW)
+		default:
+			// Routes may be registered conditionally; descend into nested blocks.
+			for _, body := range nestedStmtBodies(stmt) {
+				w.walkBlock(body, prefix, scopeMW)
+			}
 		}
 	}
 }

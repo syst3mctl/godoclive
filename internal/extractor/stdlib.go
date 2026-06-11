@@ -79,6 +79,12 @@ func (w *stdlibWalker) walkBlock(stmts []ast.Stmt, parentMW []ast.Expr) {
 				continue
 			}
 			w.processCall(call, scopeMW)
+		default:
+			// Routes are commonly mounted conditionally (e.g.
+			// `if dep != nil { mux.Handle(...) }`); descend into nested blocks.
+			for _, body := range nestedStmtBodies(stmt) {
+				w.walkBlock(body, scopeMW)
+			}
 		}
 	}
 }
