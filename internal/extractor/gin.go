@@ -135,6 +135,11 @@ func (w *ginWalker) walkBlock(stmts []ast.Stmt, prefix string, parentMW []ast.Ex
 				w.addRoute(ginMethods[name], g.prefix, call, allMW)
 				continue
 			}
+		default:
+			// Routes may be registered conditionally; descend into nested blocks.
+			for _, body := range nestedStmtBodies(stmt) {
+				w.walkBlock(body, prefix, scopeMW)
+			}
 		}
 	}
 }

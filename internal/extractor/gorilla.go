@@ -116,6 +116,11 @@ func (w *gorillaWalker) walkBlock(stmts []ast.Stmt, prefix string, parentMW []as
 				continue
 			}
 			w.processExprCall(call, prefix, &scopeMW)
+		default:
+			// Routes may be registered conditionally; descend into nested blocks.
+			for _, body := range nestedStmtBodies(stmt) {
+				w.walkBlock(body, prefix, scopeMW)
+			}
 		}
 	}
 }

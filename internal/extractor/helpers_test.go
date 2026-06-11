@@ -39,8 +39,16 @@ func TestHasIgnoreDirective(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "two lines above",
+			// A blank line between the directive and the node breaks adjacency,
+			// so the directive must NOT apply. This is what stops one directive
+			// from leaking onto a second, densely-packed statement below it.
+			name: "blank line above — not adjacent",
 			src:  "package p\n//godoclive:ignore\n\nvar x = 1\n",
+			want: false,
+		},
+		{
+			name: "directive plus contiguous doc comment",
+			src:  "package p\n//godoclive:ignore\n// docs\nvar x = 1\n",
 			want: true,
 		},
 		{

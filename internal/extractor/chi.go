@@ -125,19 +125,26 @@ func (w *chiWalker) walkBlock(block *ast.BlockStmt, prefix string, parentMW []as
 	if block == nil {
 		return
 	}
+	w.walkStmts(block.List, prefix, parentMW)
+}
+
+// walkStmts processes a statement list, recording chi route registrations and
+// descending into nested blocks (if/for/switch/…) so conditionally-mounted
+// routes are not missed. Middleware added by a nested r.Use() stays scoped to
+// that block, matching Go's lexical scoping.
+func (w *chiWalker) walkStmts(stmts []ast.Stmt, prefix string, parentMW []ast.Expr) {
 	scopeMW := copyExprs(parentMW)
 
-	for _, stmt := range block.List {
-		exprStmt, ok := stmt.(*ast.ExprStmt)
-		if !ok {
+	for _, stmt := range stmts {
+		if exprStmt, ok := stmt.(*ast.ExprStmt); ok {
+			if call, ok := exprStmt.X.(*ast.CallExpr); ok {
+				w.processCall(call, prefix, &scopeMW)
+			}
 			continue
 		}
-		call, ok := exprStmt.X.(*ast.CallExpr)
-		if !ok {
-			continue
+		for _, body := range nestedStmtBodies(stmt) {
+			w.walkStmts(body, prefix, scopeMW)
 		}
-
-		w.processCall(call, prefix, &scopeMW)
 	}
 }
 
