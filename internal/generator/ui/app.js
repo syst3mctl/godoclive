@@ -1370,6 +1370,16 @@
 
   function renderTryItResponse(container, status, latency, body, headers, ep, epId) {
     container.style.display = 'block';
+
+    // status 0 means fetch() rejected before any response could be read. The
+    // browser reports CORS, network, TLS/DNS and mixed-content failures the
+    // same opaque way ("Failed to fetch"), so explain the likely cause instead
+    // of dumping the raw message.
+    if (status === 0) {
+      container.innerHTML = renderTryItError(body, latency);
+      return;
+    }
+
     var sc = status >= 200 && status < 300 ? 's2xx' : status >= 400 && status < 500 ? 's4xx' : 's5xx';
 
     var h = '<div class="try-it-response-header">';
@@ -1419,6 +1429,36 @@
     }
 
     container.innerHTML = h;
+  }
+
+  // Builds the panel shown when fetch() rejects (status 0). curl works while
+  // the browser fails because curl doesn't enforce CORS — the most likely
+  // cause — so point the user at the curl snippet and the real fix.
+  function renderTryItError(rawError, latency) {
+    var fileProto = window.location.protocol === 'file:';
+    var pageOrigin = fileProto ? 'null (opened as a local file://)' : window.location.origin;
+    var targetOrigin;
+    try { targetOrigin = new URL(baseUrl).origin; } catch (e) { targetOrigin = baseUrl; }
+
+    var h = '<div class="try-it-response-header">';
+    h += '<span class="try-it-response-status err">&#9888; Request blocked</span>';
+    h += '<span class="try-it-latency">' + latency + 'ms</span>';
+    h += '</div>';
+
+    h += '<div class="try-it-error-hint">';
+    h += '<p>The browser blocked this request <strong>before any response could be read</strong>. ' +
+      'This is almost always <strong>CORS</strong>: the API at <code>' + esc(targetOrigin) + '</code> ' +
+      'returned no <code>Access-Control-Allow-Origin</code> header for this page’s origin ' +
+      '(<code>' + esc(pageOrigin) + '</code>), so the browser hides the response from JavaScript. ' +
+      'It can also be a network, TLS/DNS, or mixed-content error.</p>';
+    h += '<p>The call may have <strong>succeeded on the server</strong> — <code>curl</code> doesn’t ' +
+      'enforce CORS, so the <strong>curl</strong> snippet above usually works. To make Send Request work ' +
+      'in the browser, the API must allow this origin (CORS) or these docs must be served from the same ' +
+      'origin as the API.</p>';
+    h += '<details class="try-it-error-raw"><summary>Browser error</summary>' +
+      '<pre class="code-block">' + esc(rawError) + '</pre></details>';
+    h += '</div>';
+    return h;
   }
 
   // Response headers toggle

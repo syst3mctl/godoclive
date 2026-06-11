@@ -1418,6 +1418,40 @@ input, textarea, select {
 .try-it-response-status.s4xx { color: var(--status-4xx); }
 .try-it-response-status.s5xx { color: var(--status-5xx); }
 
+/* Error (status 0): fetch rejected before a response — smaller than a code. */
+.try-it-response-status.err {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--status-5xx);
+}
+
+.try-it-error-hint {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  background: var(--bg-subtle, rgba(127, 127, 127, 0.06));
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--status-5xx);
+  border-radius: var(--border-radius-sm);
+  padding: 12px 14px;
+}
+
+.try-it-error-hint p { margin: 0 0 8px; }
+.try-it-error-hint p:last-of-type { margin-bottom: 0; }
+.try-it-error-hint code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.try-it-error-raw { margin-top: 10px; }
+.try-it-error-raw summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.try-it-error-raw pre { margin-top: 8px; }
+
 .try-it-latency {
   font-family: var(--font-ui);
   font-size: 13px;
