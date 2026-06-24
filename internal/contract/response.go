@@ -593,19 +593,48 @@ func pairBranchEvents(events []responseEvent) *model.ResponseDef {
 			hasStatus = true
 
 		case "body":
-			bodyType = ev.bodyType
-			if ev.contentType != "" {
+			// A typed JSON body (json.NewEncoder(w).Encode(T{})) always wins
+			// over an untyped w.Write([]byte) within the same branch. This
+			// supports the reverse-proxy idiom where a doc-only Encode anchor
+			// describes the response shape while the real handler relays raw
+			// upstream bytes via w.Write.
+			if ev.bodyType != nil {
+				bodyType = ev.bodyType
+				if ev.contentType != "" {
+					contentType = ev.contentType
+				}
+			} else if bodyType == nil && ev.contentType != "" {
+				// Untyped write — only record its content type when no typed
+				// body has been seen yet (don't downgrade application/json).
 				contentType = ev.contentType
 			}
 
 		case "helper":
-			statusCode = ev.statusCode
-			bodyType = ev.bodyType
-			hasStatus = ev.statusCode != 0
-			if ev.contentType != "" {
+			// A single helper can emit several events (e.g. WriteHeader(status)
+			// followed by Encode(v)); merge them rather than letting a later
+			// event clobber the status or body recorded by an earlier one. A
+			// helper that only relays bytes (relay(w, r) → w.Write) must not
+			// downgrade a typed JSON body's status, content type, or source.
+			contributed := false
+			if ev.statusCode != 0 {
+				statusCode = ev.statusCode
+				hasStatus = true
+				contributed = true
+			}
+			if ev.bodyType != nil {
+				bodyType = ev.bodyType
+				if ev.contentType != "" {
+					contentType = ev.contentType
+				}
+				contributed = true
+			} else if bodyType == nil && ev.contentType != "" {
+				// Untyped relay helper — only record its content type when no
+				// typed body has been seen yet.
 				contentType = ev.contentType
 			}
-			source = "helper"
+			if contributed {
+				source = "helper"
+			}
 		}
 	}
 
