@@ -81,12 +81,21 @@ func traceHelper(call *ast.CallExpr, info *types.Info, pn resolver.HandlerParamN
 		}
 	}
 
-	// Resolve the helper's own parameter names.
-	helperPN := resolver.ResolveHandlerParams(fd.Type, info)
+	// The helper may live in a different package than the caller. Its body's
+	// AST nodes are type-checked in the helper package's TypesInfo, so use that
+	// info to resolve the helper's param names and analyze its body — using the
+	// caller's info would yield empty results for cross-package helpers.
+	helperInfo := helperFuncInfo(fnObj, pkgs)
+	if helperInfo == nil {
+		helperInfo = info
+	}
+
+	// Resolve the helper's own parameter names (using the helper package info).
+	helperPN := resolver.ResolveHandlerParams(fd.Type, helperInfo)
 
 	// Collect response events from the helper body (isHelper=true prevents further recursion).
 	var unresolved []string
-	events := collectResponseEvents(fd.Body, info, helperPN, pkgs, &unresolved, true)
+	events := collectResponseEvents(fd.Body, helperInfo, helperPN, pkgs, &unresolved, true)
 
 	// If the helper has calls that look like they could be further helpers,
 	// check if any events are empty and add unresolved messages.
@@ -99,8 +108,15 @@ func traceHelper(call *ast.CallExpr, info *types.Info, pn resolver.HandlerParamN
 	// Post-process: resolve status codes that are -1 (unresolvable) by mapping
 	// helper parameters back to caller arguments. For example, if the helper has
 	// w.WriteHeader(code) where code is the 3rd parameter, resolve the caller's
-	// 3rd argument (http.StatusBadRequest → 400).
+	// 3rd argument (http.StatusBadRequest → 400). Caller args are resolved with
+	// the caller's info.
 	resolveHelperStatusCodes(events, fd, call, info)
+
+	// Post-process: rebind interface/parameter body types to the concrete type
+	// passed at the call site. A helper like WriteJSON(w, status, v) encodes v,
+	// whose declared type is usually `any`; map it back to the caller's concrete
+	// argument (e.g. ItemList{}) so helper-based responses get a real schema.
+	resolveHelperBodyTypes(events, fd, call, info)
 
 	// Tag events as coming from a helper and fix their positions.
 	// Helper events have positions within the helper function body — these
@@ -288,16 +304,7 @@ func resolveFromCallerArgs(expr ast.Expr, paramToCallerIdx map[string]int, calle
 func resolveHelperStatusCodes(events []responseEvent, helperDecl *ast.FuncDecl, callerCall *ast.CallExpr, info *types.Info) {
 	// Build a mapping of helper parameter names to caller argument indices.
 	// Helper params are indexed sequentially across all fields.
-	paramToCallerIdx := make(map[string]int)
-	idx := 0
-	if helperDecl.Type.Params != nil {
-		for _, field := range helperDecl.Type.Params.List {
-			for _, name := range field.Names {
-				paramToCallerIdx[name.Name] = idx
-				idx++
-			}
-		}
-	}
+	paramToCallerIdx := helperParamIndex(helperDecl)
 
 	for i := range events {
 		if events[i].statusCode != -1 && events[i].statusCode != 0 {
@@ -335,6 +342,132 @@ func resolveHelperStatusCodes(events []responseEvent, helperDecl *ast.FuncDecl, 
 			return false
 		})
 	}
+}
+
+// resolveHelperBodyTypes rebinds body types in helper events to the concrete
+// type passed at the call site. Inside a helper such as
+// WriteJSON(w, status, v) { json.NewEncoder(w).Encode(v) } the encode argument
+// is the parameter v, whose declared type is typically `any`. We find the
+// encode argument, map it back to the helper's parameter list, and resolve the
+// caller's corresponding argument type (e.g. ItemList{}) using the caller's
+// info — giving helper-based responses a real schema instead of interface{}.
+//
+// When the encode argument is a concrete value already (e.g.
+// Encode(ErrorResponse{...})), no rebinding happens and the body type is left
+// untouched.
+func resolveHelperBodyTypes(events []responseEvent, helperDecl *ast.FuncDecl, callerCall *ast.CallExpr, callerInfo *types.Info) {
+	paramToCallerIdx := helperParamIndex(helperDecl)
+
+	// Find the concrete body type by locating a json encode whose argument
+	// names a helper parameter, then resolving the caller's matching argument.
+	var concrete types.Type
+	ast.Inspect(helperDecl.Body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		argExpr, ok := jsonEncodeArg(call)
+		if !ok {
+			return true
+		}
+		ident, ok := argExpr.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		callerIdx, found := paramToCallerIdx[ident.Name]
+		if !found || callerIdx >= len(callerCall.Args) {
+			return true
+		}
+		if t := resolveBodyType(callerCall.Args[callerIdx], callerInfo); t != nil {
+			concrete = t
+			return false
+		}
+		return true
+	})
+
+	if concrete == nil {
+		return
+	}
+
+	// Override only interface/nil body types — concrete literals encoded inside
+	// the helper (e.g. a fixed ErrorResponse) keep their own type.
+	for i := range events {
+		if events[i].kind != "helper" && events[i].kind != "body" {
+			continue
+		}
+		if events[i].bodyType == nil || isInterfaceType(events[i].bodyType) {
+			events[i].bodyType = concrete
+		}
+	}
+}
+
+// helperParamIndex builds a map from each helper parameter name to its flat
+// positional index across the parameter list.
+func helperParamIndex(helperDecl *ast.FuncDecl) map[string]int {
+	paramToCallerIdx := make(map[string]int)
+	idx := 0
+	if helperDecl.Type.Params != nil {
+		for _, field := range helperDecl.Type.Params.List {
+			for _, name := range field.Names {
+				paramToCallerIdx[name.Name] = idx
+				idx++
+			}
+		}
+	}
+	return paramToCallerIdx
+}
+
+// jsonEncodeArg returns the argument of json.NewEncoder(w).Encode(x), ignoring
+// the writer identity (callers only need the encoded value's expression).
+func jsonEncodeArg(call *ast.CallExpr) (ast.Expr, bool) {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "Encode" {
+		return nil, false
+	}
+	newEncCall, ok := sel.X.(*ast.CallExpr)
+	if !ok {
+		return nil, false
+	}
+	newEncSel, ok := newEncCall.Fun.(*ast.SelectorExpr)
+	if !ok || newEncSel.Sel.Name != "NewEncoder" {
+		return nil, false
+	}
+	ident, ok := newEncSel.X.(*ast.Ident)
+	if !ok || ident.Name != "json" {
+		return nil, false
+	}
+	if len(call.Args) != 1 {
+		return nil, false
+	}
+	return call.Args[0], true
+}
+
+// isInterfaceType reports whether t's underlying type is an interface (e.g.
+// `any`/`interface{}`), which is the signature of an untyped helper parameter.
+func isInterfaceType(t types.Type) bool {
+	if t == nil {
+		return false
+	}
+	_, ok := t.Underlying().(*types.Interface)
+	return ok
+}
+
+// helperFuncInfo returns the TypesInfo for the package that declares fn, so a
+// helper body can be analyzed with the info that actually type-checked it.
+func helperFuncInfo(fn *types.Func, pkgs []*packages.Package) *types.Info {
+	fnPkg := fn.Pkg()
+	if fnPkg == nil {
+		return nil
+	}
+	var info *types.Info
+	packages.Visit(pkgs, func(pkg *packages.Package) bool {
+		if pkg.Types == fnPkg {
+			info = pkg.TypesInfo
+			return false
+		}
+		return true
+	}, nil)
+	return info
 }
 
 // findHelperFuncDecl searches all packages for the FuncDecl of a types.Func.

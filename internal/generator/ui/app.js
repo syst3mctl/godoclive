@@ -38,21 +38,27 @@
             description: 'Session created',
             contentType: 'application/json',
             source: 'explicit json.Encode call',
-            fields: [
-              { name: 'access_token', jsonName: 'access_token', type: 'string', required: true, example: '"eyJhbGci..."' },
-              { name: 'expires_in', jsonName: 'expires_in', type: 'integer', required: true, example: '3600' }
-            ],
-            example: '{\n  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",\n  "expires_in": 3600\n}'
+            body: {
+              typeName: 'LoginResponse',
+              fields: [
+                { name: 'access_token', jsonName: 'access_token', type: 'string', required: true, example: '"eyJhbGci..."' },
+                { name: 'expires_in', jsonName: 'expires_in', type: 'integer', required: true, example: '3600' }
+              ],
+              example: '{\n  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",\n  "expires_in": 3600\n}'
+            }
           },
           {
             status: 401,
             description: 'Invalid credentials',
             contentType: 'application/json',
             source: 'inferred',
-            fields: [
-              { name: 'error', jsonName: 'error', type: 'string', required: true, example: '"invalid_credentials"' }
-            ],
-            example: '{\n  "error": "invalid_credentials"\n}'
+            body: {
+              typeName: 'ErrorResponse',
+              fields: [
+                { name: 'error', jsonName: 'error', type: 'string', required: true, example: '"invalid_credentials"' }
+              ],
+              example: '{\n  "error": "invalid_credentials"\n}'
+            }
           }
         ],
         unresolved: []
@@ -80,8 +86,11 @@
             description: 'Array of users',
             contentType: 'application/json',
             source: 'explicit json.Encode call',
-            fields: null,
-            example: '[\n  {\n    "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",\n    "email": "user@example.com",\n    "name": "John Doe"\n  }\n]'
+            body: {
+              typeName: '[]UserResponse',
+              fields: null,
+              example: '[\n  {\n    "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",\n    "email": "user@example.com",\n    "name": "John Doe"\n  }\n]'
+            }
           }
         ],
         unresolved: []
@@ -105,23 +114,29 @@
             description: 'User object',
             contentType: 'application/json',
             source: 'explicit c.JSON call',
-            fields: [
-              { name: 'id', jsonName: 'id', type: 'uuid', required: true, example: '"f47ac10b-..."' },
-              { name: 'email', jsonName: 'email', type: 'string', required: true, example: '"user@example.com"' },
-              { name: 'name', jsonName: 'name', type: 'string', required: true, example: '"John Doe"' },
-              { name: 'role', jsonName: 'role', type: 'string', required: false, example: '"user"' }
-            ],
-            example: '{\n  "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",\n  "email": "user@example.com",\n  "name": "John Doe",\n  "role": "user"\n}'
+            body: {
+              typeName: 'UserResponse',
+              fields: [
+                { name: 'id', jsonName: 'id', type: 'uuid', required: true, example: '"f47ac10b-..."' },
+                { name: 'email', jsonName: 'email', type: 'string', required: true, example: '"user@example.com"' },
+                { name: 'name', jsonName: 'name', type: 'string', required: true, example: '"John Doe"' },
+                { name: 'role', jsonName: 'role', type: 'string', required: false, example: '"user"' }
+              ],
+              example: '{\n  "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",\n  "email": "user@example.com",\n  "name": "John Doe",\n  "role": "user"\n}'
+            }
           },
           {
             status: 404,
             description: 'User not found',
             contentType: 'application/json',
             source: 'respond() helper',
-            fields: [
-              { name: 'error', jsonName: 'error', type: 'string', required: true, example: '"not_found"' }
-            ],
-            example: '{\n  "error": "not_found"\n}'
+            body: {
+              typeName: 'ErrorResponse',
+              fields: [
+                { name: 'error', jsonName: 'error', type: 'string', required: true, example: '"not_found"' }
+              ],
+              example: '{\n  "error": "not_found"\n}'
+            }
           }
         ],
         unresolved: []
@@ -153,19 +168,25 @@
             description: 'User created',
             contentType: 'application/json',
             source: 'explicit json.Encode call',
-            fields: [
-              { name: 'id', jsonName: 'id', type: 'uuid', required: true, example: '"f47ac10b-..."' },
-              { name: 'email', jsonName: 'email', type: 'string', required: true, example: '"user@example.com"' }
-            ],
-            example: '{\n  "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",\n  "email": "user@example.com"\n}'
+            body: {
+              typeName: 'UserResponse',
+              fields: [
+                { name: 'id', jsonName: 'id', type: 'uuid', required: true, example: '"f47ac10b-..."' },
+                { name: 'email', jsonName: 'email', type: 'string', required: true, example: '"user@example.com"' }
+              ],
+              example: '{\n  "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",\n  "email": "user@example.com"\n}'
+            }
           },
           {
             status: 400,
             description: 'Validation error',
             contentType: 'application/json',
             source: 'inferred',
-            fields: null,
-            example: '{\n  "error": "validation_failed",\n  "details": ["email is required"]\n}'
+            body: {
+              typeName: 'ErrorResponse',
+              fields: null,
+              example: '{\n  "error": "validation_failed",\n  "details": ["email is required"]\n}'
+            }
           }
         ],
         unresolved: []
@@ -184,14 +205,17 @@
         headers: [],
         body: null,
         responses: [
-          { status: 204, description: 'User deleted', contentType: null, source: 'explicit WriteHeader call', fields: null, example: null },
+          { status: 204, description: 'User deleted', contentType: null, source: 'explicit WriteHeader call', body: null },
           {
             status: 404,
             description: 'User not found',
             contentType: 'application/json',
             source: 'respond() helper',
-            fields: null,
-            example: '{\n  "error": "not_found"\n}'
+            body: {
+              typeName: 'ErrorResponse',
+              fields: null,
+              example: '{\n  "error": "not_found"\n}'
+            }
           }
         ],
         unresolved: []
@@ -216,8 +240,7 @@
             description: 'Array of products',
             contentType: 'application/json',
             source: 'inferred',
-            fields: null,
-            example: null
+            body: null
           }
         ],
         unresolved: ['response body type']
@@ -250,16 +273,22 @@
             description: 'Product updated',
             contentType: 'application/json',
             source: 'explicit c.JSON call',
-            fields: null,
-            example: '{\n  "id": "a1b2c3d4-...",\n  "name": "Updated Widget",\n  "price": 29.99\n}'
+            body: {
+              typeName: 'ProductResponse',
+              fields: null,
+              example: '{\n  "id": "a1b2c3d4-...",\n  "name": "Updated Widget",\n  "price": 29.99\n}'
+            }
           },
           {
             status: 404,
             description: 'Product not found',
             contentType: 'application/json',
             source: 'respond() helper',
-            fields: null,
-            example: '{\n  "error": "not_found"\n}'
+            body: {
+              typeName: 'ErrorResponse',
+              fields: null,
+              example: '{\n  "error": "not_found"\n}'
+            }
           }
         ],
         unresolved: ['request body fields']
@@ -281,11 +310,14 @@
             description: 'OK',
             contentType: 'application/json',
             source: 'explicit json.Encode call',
-            fields: [
-              { name: 'status', jsonName: 'status', type: 'string', required: true, example: '"ok"' },
-              { name: 'uptime', jsonName: 'uptime', type: 'string', required: true, example: '"72h15m"' }
-            ],
-            example: '{\n  "status": "ok",\n  "uptime": "72h15m"\n}'
+            body: {
+              typeName: 'HealthResponse',
+              fields: [
+                { name: 'status', jsonName: 'status', type: 'string', required: true, example: '"ok"' },
+                { name: 'uptime', jsonName: 'uptime', type: 'string', required: true, example: '"72h15m"' }
+              ],
+              example: '{\n  "status": "ok",\n  "uptime": "72h15m"\n}'
+            }
           }
         ],
         unresolved: []
@@ -302,7 +334,7 @@
         headers: [],
         body: null,
         responses: [
-          { status: 302, description: 'Redirects to /users', contentType: null, source: 'explicit redirect', fields: null, example: null }
+          { status: 302, description: 'Redirects to /users', contentType: null, source: 'explicit redirect', body: null }
         ],
         unresolved: []
       }
@@ -1024,7 +1056,8 @@
       h += 'role="tabpanel" aria-labelledby="tab-' + epId + '-resp-' + resp.status + '">';
 
       // Body-less responses
-      if (!resp.example && !resp.fields) {
+      var rbody = resp.body;
+      if (!rbody || ((!rbody.fields || rbody.fields.length === 0) && !rbody.example)) {
         h += '<div class="no-body-msg">No response body</div>';
       } else {
         // Inner Schema/Example tabs
@@ -1036,17 +1069,17 @@
 
         // Schema
         h += '<div class="tab-panel active" id="panel-' + innerPrefix + '-schema" role="tabpanel" aria-labelledby="tab-' + innerPrefix + '-schema">';
-        if (resp.fields && resp.fields.length > 0) {
-          h += buildFieldTable(resp.fields);
+        if (rbody.fields && rbody.fields.length > 0) {
+          h += buildFieldTable(rbody.fields);
         } else {
-          h += '<div class="no-body-msg">Schema not available</div>';
+          h += '<div class="no-body-msg">' + esc(rbody.typeName || 'Schema not available') + '</div>';
         }
         h += '</div>';
 
         // Example
         h += '<div class="tab-panel" id="panel-' + innerPrefix + '-example" role="tabpanel" aria-labelledby="tab-' + innerPrefix + '-example">';
-        if (resp.example) {
-          h += buildCodeBlock(resp.example, innerPrefix + '-ex', 'json');
+        if (rbody.example) {
+          h += buildCodeBlock(rbody.example, innerPrefix + '-ex', 'json');
         } else {
           h += '<div class="no-body-msg">No example available</div>';
         }

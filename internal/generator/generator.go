@@ -116,12 +116,20 @@ type apiField struct {
 }
 
 type apiResponse struct {
-	Status      int        `json:"status"`
-	Description string     `json:"description"`
-	ContentType string     `json:"contentType"`
-	Source      string     `json:"source"`
-	Fields      []apiField `json:"fields,omitempty"`
-	Example     string     `json:"example,omitempty"`
+	Status      int              `json:"status"`
+	Description string           `json:"description"`
+	ContentType string           `json:"contentType"`
+	Source      string           `json:"source"`
+	Body        *apiResponseBody `json:"body"`
+}
+
+// apiResponseBody mirrors apiBody for response payloads, holding the resolved
+// type name, its fields, and a rendered example. It is null for body-less
+// responses (e.g. 204).
+type apiResponseBody struct {
+	TypeName string     `json:"typeName"`
+	Fields   []apiField `json:"fields"`
+	Example  string     `json:"example,omitempty"`
 }
 
 // buildAPIData converts []EndpointDef into the JSON structure the UI expects.
@@ -217,20 +225,31 @@ func convertBody(req model.RequestDef) *apiBody {
 		TypeName:    req.Body.Name,
 		Fields:      convertTypeDefFields(req.Body),
 	}
-	if req.Body.Example != nil {
-		exBytes, err := json.MarshalIndent(req.Body.Example, "", "  ")
-		if err == nil {
-			b.Example = string(exBytes)
+	b.Example = renderBodyExample(req.Body)
+	return b
+}
+
+// renderBodyExample produces a pretty-printed JSON example for a body type,
+// preferring an explicit example and falling back to a synthesized struct
+// example built from per-field examples.
+func renderBodyExample(td *model.TypeDef) string {
+	if td == nil {
+		return ""
+	}
+	if td.Example != nil {
+		if exBytes, err := json.MarshalIndent(td.Example, "", "  "); err == nil {
+			return string(exBytes)
 		}
-	} else if req.Body.Kind == model.KindStruct && len(req.Body.Fields) > 0 {
-		if obj := buildStructExample(req.Body); obj != nil {
-			exBytes, err := json.MarshalIndent(obj, "", "  ")
-			if err == nil {
-				b.Example = string(exBytes)
+		return ""
+	}
+	if td.Kind == model.KindStruct && len(td.Fields) > 0 {
+		if obj := buildStructExample(td); obj != nil {
+			if exBytes, err := json.MarshalIndent(obj, "", "  "); err == nil {
+				return string(exBytes)
 			}
 		}
 	}
-	return b
+	return ""
 }
 
 func buildStructExample(td *model.TypeDef) map[string]interface{} {
@@ -283,12 +302,10 @@ func convertResponses(responses []model.ResponseDef) []apiResponse {
 			Source:      r.Source,
 		}
 		if r.Body != nil {
-			ar.Fields = convertTypeDefFields(r.Body)
-			if r.Body.Example != nil {
-				exBytes, err := json.MarshalIndent(r.Body.Example, "", "  ")
-				if err == nil {
-					ar.Example = string(exBytes)
-				}
+			ar.Body = &apiResponseBody{
+				TypeName: r.Body.Name,
+				Fields:   convertTypeDefFields(r.Body),
+				Example:  renderBodyExample(r.Body),
 			}
 		}
 		out = append(out, ar)

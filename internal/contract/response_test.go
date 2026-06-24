@@ -279,6 +279,124 @@ func TestExtractResponses_GinHelpers_DeleteItem(t *testing.T) {
 	}
 }
 
+// --- net/http typed response bodies (method-receiver handlers) ---
+
+// resolveMainResponses loads a fixture, locates the main package (the handlers
+// may import helper sub-packages), extracts stdlib routes, resolves each
+// handler, and returns the extracted responses keyed by "METHOD /path".
+func resolveMainResponses(t *testing.T, dir string) map[string][]model.ResponseDef {
+	t.Helper()
+	pkgs, err := loader.LoadPackages(dir, "./...")
+	if err != nil {
+		t.Fatalf("LoadPackages failed: %v", err)
+	}
+
+	var info *types.Info
+	for _, p := range pkgs {
+		if p.Name == "main" && p.TypesInfo != nil {
+			info = p.TypesInfo
+		}
+	}
+	if info == nil {
+		t.Fatal("main package TypesInfo not found")
+	}
+
+	ext := &extractor.StdlibExtractor{}
+	routes, err := ext.Extract(pkgs)
+	if err != nil {
+		t.Fatalf("Extract failed: %v", err)
+	}
+
+	out := make(map[string][]model.ResponseDef)
+	for _, route := range routes {
+		fd, fl, err := resolver.ResolveHandler(route.HandlerExpr, info, pkgs)
+		if err != nil {
+			t.Fatalf("ResolveHandler(%s %s): %v", route.Method, route.Path, err)
+		}
+		var body *ast.BlockStmt
+		var ft *ast.FuncType
+		if fd != nil {
+			body, ft = fd.Body, fd.Type
+		} else if fl != nil {
+			body, ft = fl.Body, fl.Type
+		}
+		pn := resolver.ResolveHandlerParams(ft, info)
+		resps, _ := contract.ExtractResponses(body, info, pn, pkgs)
+		out[route.Method+" "+route.Path] = resps
+	}
+	return out
+}
+
+// TestExtractResponses_StdlibMethodReceiver_Encode covers a method-value handler
+// registered via http.HandlerFunc(p.get) with a reachable
+// json.NewEncoder(w).Encode(ItemResponse{}).
+func TestExtractResponses_StdlibMethodReceiver_Encode(t *testing.T) {
+	byKey := resolveMainResponses(t, testdataDir("stdlib-response"))
+
+	resps := byKey["GET /v1/items/{id}"]
+	r := findResponse(resps, 200)
+	if r == nil {
+		t.Fatalf("get: missing 200 (got %d responses)", len(resps))
+	}
+	if r.ContentType != "application/json" {
+		t.Errorf("get 200: content type = %q, want application/json", r.ContentType)
+	}
+	if r.Body == nil || r.Body.Name != "ItemResponse" {
+		t.Fatalf("get 200: want ItemResponse body, got %+v", r.Body)
+	}
+}
+
+// TestExtractResponses_StdlibDocOnlyEncode_Paginated covers the reverse-proxy
+// idiom: `if false { json.Encode(ItemList{}) }` followed by an untyped
+// w.Write([]byte) relay. The doc-only typed anchor must win over the write, and
+// the paginated wrapper type ([]ItemResponse field) must be reported.
+func TestExtractResponses_StdlibDocOnlyEncode_Paginated(t *testing.T) {
+	byKey := resolveMainResponses(t, testdataDir("stdlib-response"))
+
+	resps := byKey["GET /v1/items"]
+	r := findResponse(resps, 200)
+	if r == nil {
+		t.Fatalf("list: missing 200 (got %d responses) — doc-only encode dropped", len(resps))
+	}
+	if r.ContentType != "application/json" {
+		t.Errorf("list 200: content type = %q, want application/json", r.ContentType)
+	}
+	if r.Body == nil || r.Body.Name != "ItemList" {
+		t.Fatalf("list 200: want ItemList body, got %+v", r.Body)
+	}
+}
+
+// TestExtractResponses_StdlibHelperAndHTTPError covers http.Error → text/plain
+// and a one-arg JSON helper (httpx.WriteJSON(w, code, v)) whose body type is
+// bound to the concrete call-site argument rather than the helper's `any` param.
+func TestExtractResponses_StdlibHelperAndHTTPError(t *testing.T) {
+	byKey := resolveMainResponses(t, testdataDir("stdlib-response"))
+
+	resps := byKey["POST /v1/items"]
+
+	r400 := findResponse(resps, 400)
+	if r400 == nil {
+		t.Fatal("create: missing 400 from http.Error")
+	}
+	if r400.ContentType != "text/plain" {
+		t.Errorf("create 400: content type = %q, want text/plain", r400.ContentType)
+	}
+
+	r201 := findResponse(resps, 201)
+	if r201 == nil {
+		t.Fatalf("create: missing helper 201 (got %d responses)", len(resps))
+	}
+	if r201.Source != "helper" {
+		t.Errorf("create 201: source = %q, want helper", r201.Source)
+	}
+	if r201.ContentType != "application/json" {
+		t.Errorf("create 201: content type = %q, want application/json", r201.ContentType)
+	}
+	if r201.Body == nil || r201.Body.Name != "ItemDetail" {
+		t.Fatalf("create 201: want ItemDetail body bound from call site, got %+v", r201.Body)
+	}
+}
+
 // --- Status code resolution ---
 
 func TestResolveStatusCode(t *testing.T) {
