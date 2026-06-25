@@ -552,7 +552,9 @@ func pairEvents(events []responseEvent, returns []token.Pos, info *types.Info) [
 
 		if len(branchEvents) > 0 {
 			resp := pairBranchEvents(branchEvents)
-			if resp != nil && !seen[resp.StatusCode] {
+			// Never emit a response with a non-positive status — an unresolved
+			// status (-1) is not a valid HTTP status and must not reach the spec.
+			if resp != nil && resp.StatusCode > 0 && !seen[resp.StatusCode] {
 				seen[resp.StatusCode] = true
 				responses = append(responses, *resp)
 			}
@@ -576,6 +578,18 @@ func pairBranchEvents(events []responseEvent) *model.ResponseDef {
 	for _, ev := range events {
 		switch ev.kind {
 		case "combined":
+			// http.Error etc. — if the status code is unresolved (<= 0), keep
+			// the body (if any) but drop the bogus status so the implicit-200
+			// rule can apply instead of emitting a -1 response.
+			if ev.statusCode <= 0 {
+				if ev.bodyType != nil {
+					bodyType = ev.bodyType
+					if ev.contentType != "" {
+						contentType = ev.contentType
+					}
+				}
+				continue
+			}
 			// Self-paired — return directly.
 			resp := &model.ResponseDef{
 				StatusCode:  ev.statusCode,
@@ -589,6 +603,12 @@ func pairBranchEvents(events []responseEvent) *model.ResponseDef {
 			return resp
 
 		case "status":
+			// An unresolved status (-1, e.g. w.WriteHeader(resp.StatusCode)
+			// relaying a non-constant upstream code) is not a valid HTTP status.
+			// Ignore it and let the implicit-200 rule apply to any typed body.
+			if ev.statusCode <= 0 {
+				continue
+			}
 			statusCode = ev.statusCode
 			hasStatus = true
 
@@ -616,7 +636,10 @@ func pairBranchEvents(events []responseEvent) *model.ResponseDef {
 			// helper that only relays bytes (relay(w, r) → w.Write) must not
 			// downgrade a typed JSON body's status, content type, or source.
 			contributed := false
-			if ev.statusCode != 0 {
+			if ev.statusCode > 0 {
+				// Only a resolved, positive status counts. An unresolved relay
+				// status (-1) must not set hasStatus, or it would suppress the
+				// implicit-200 of a typed body in the same branch.
 				statusCode = ev.statusCode
 				hasStatus = true
 				contributed = true

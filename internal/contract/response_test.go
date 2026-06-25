@@ -397,6 +397,43 @@ func TestExtractResponses_StdlibHelperAndHTTPError(t *testing.T) {
 	}
 }
 
+// TestExtractResponses_StdlibUnresolvedStatus covers a relay helper that calls
+// w.WriteHeader(<non-constant>) (e.g. an upstream resp.StatusCode). The
+// unresolved -1 is not a valid HTTP status and must never surface: a typed body
+// in the same branch falls back to implicit 200, and a relay-only handler emits
+// no response at all.
+func TestExtractResponses_StdlibUnresolvedStatus(t *testing.T) {
+	byKey := resolveMainResponses(t, testdataDir("stdlib-unresolved-status"))
+
+	// GET: doc-only Encode(Item{}) + relay(unresolved status) → exactly one 200/Item.
+	getResps := byKey["GET /v1/items/{id}"]
+	for _, r := range getResps {
+		if r.StatusCode <= 0 {
+			t.Errorf("get: emitted invalid status %d", r.StatusCode)
+		}
+	}
+	if len(getResps) != 1 {
+		t.Fatalf("get: want exactly 1 response, got %d (%+v)", len(getResps), getResps)
+	}
+	if getResps[0].StatusCode != 200 {
+		t.Errorf("get: want status 200, got %d", getResps[0].StatusCode)
+	}
+	if getResps[0].Body == nil || getResps[0].Body.Name != "Item" {
+		t.Errorf("get: want Item body, got %+v", getResps[0].Body)
+	}
+
+	// DELETE: relay only (unresolved status, no typed body) → no response at all.
+	delResps := byKey["DELETE /v1/items/{id}"]
+	for _, r := range delResps {
+		if r.StatusCode <= 0 {
+			t.Errorf("remove: emitted invalid status %d", r.StatusCode)
+		}
+	}
+	if len(delResps) != 0 {
+		t.Errorf("remove: want no responses, got %d (%+v)", len(delResps), delResps)
+	}
+}
+
 // --- Status code resolution ---
 
 func TestResolveStatusCode(t *testing.T) {
