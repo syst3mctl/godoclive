@@ -55,14 +55,36 @@ func detectFromExpr(expr ast.Expr, info *types.Info, pkgs []*packages.Package) [
 	return scanBodyForAuth(body, info, pkgs)
 }
 
+// maxMiddlewareHops bounds middleware-resolution indirection (var → initializer
+// → factory call → …) so a pathological chain can never recurse unboundedly.
+const maxMiddlewareHops = 4
+
 // resolveMiddlewareBody resolves a middleware expression (Ident, SelectorExpr,
-// or CallExpr) to the function body statements.
+// CallExpr, or FuncLit) to the function body statements.
 func resolveMiddlewareBody(expr ast.Expr, info *types.Info, pkgs []*packages.Package) *ast.BlockStmt {
+	return resolveMiddlewareBodyDepth(expr, info, pkgs, 0)
+}
+
+func resolveMiddlewareBodyDepth(expr ast.Expr, info *types.Info, pkgs []*packages.Package, depth int) *ast.BlockStmt {
+	if depth > maxMiddlewareHops {
+		return nil
+	}
 	switch e := expr.(type) {
 	case *ast.Ident:
 		fd := findFuncDeclByIdent(e, info, pkgs)
 		if fd != nil {
 			return fd.Body
+		}
+		// Not a declared function — the ident may be a local VARIABLE holding a
+		// middleware built by a factory, the common edge idiom:
+		//
+		//	requireAuth := auth.RequireAuth(verifier, logger)
+		//	mux.Handle("GET /x", requireAuth(http.HandlerFunc(h)))
+		//
+		// Trace the variable to its initializer expression and resolve THAT
+		// (the factory call's function body contains the auth patterns).
+		if init := findVarInit(e, info, pkgs); init != nil {
+			return resolveMiddlewareBodyDepth(init, info, pkgs, depth+1)
 		}
 	case *ast.SelectorExpr:
 		fd := findFuncDeclBySelector(e, info, pkgs)
@@ -72,9 +94,79 @@ func resolveMiddlewareBody(expr ast.Expr, info *types.Info, pkgs []*packages.Pac
 	case *ast.CallExpr:
 		// Middleware factories: e.g., authMiddleware("bearer")
 		// Resolve the function being called.
-		return resolveMiddlewareBody(e.Fun, info, pkgs)
+		return resolveMiddlewareBodyDepth(e.Fun, info, pkgs, depth+1)
+	case *ast.FuncLit:
+		return e.Body
 	}
 	return nil
+}
+
+// findVarInit locates the initializer expression of a variable identifier: the
+// matching RHS of its `:=` / `=` assignment or its declaration ValueSpec. Only
+// a 1:1 LHS↔RHS pairing is traced — a multi-value assignment from a single call
+// cannot be split syntactically and returns nil.
+func findVarInit(ident *ast.Ident, info *types.Info, pkgs []*packages.Package) ast.Expr {
+	obj, ok := info.Uses[ident]
+	if !ok {
+		if obj, ok = info.Defs[ident]; !ok {
+			return nil
+		}
+	}
+	if _, isVar := obj.(*types.Var); !isVar || obj.Pkg() == nil {
+		return nil
+	}
+
+	var targetPkg *packages.Package
+	packages.Visit(pkgs, func(pkg *packages.Package) bool {
+		if pkg.Types == obj.Pkg() {
+			targetPkg = pkg
+			return false
+		}
+		return true
+	}, nil)
+	if targetPkg == nil {
+		return nil
+	}
+
+	var init ast.Expr
+	for _, file := range targetPkg.Syntax {
+		if init != nil {
+			break
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			if init != nil {
+				return false
+			}
+			switch stmt := n.(type) {
+			case *ast.AssignStmt:
+				if len(stmt.Lhs) != len(stmt.Rhs) {
+					return true
+				}
+				for i, lhs := range stmt.Lhs {
+					id, ok := lhs.(*ast.Ident)
+					if !ok {
+						continue
+					}
+					if targetPkg.TypesInfo.Defs[id] == obj || targetPkg.TypesInfo.Uses[id] == obj {
+						init = stmt.Rhs[i]
+						return false
+					}
+				}
+			case *ast.ValueSpec:
+				if len(stmt.Names) != len(stmt.Values) {
+					return true
+				}
+				for i, name := range stmt.Names {
+					if targetPkg.TypesInfo.Defs[name] == obj {
+						init = stmt.Values[i]
+						return false
+					}
+				}
+			}
+			return true
+		})
+	}
+	return init
 }
 
 // findFuncDeclByIdent finds the FuncDecl for an identifier.

@@ -354,6 +354,24 @@
     basicPass: ''
   };
 
+  // Persist credentials across reloads so setting a token once is enough to try
+  // any endpoint in later sessions (like swagger-ui's persistAuthorization).
+  var AUTH_KEY = 'gdl-auth';
+  try {
+    var savedAuth = JSON.parse(localStorage.getItem(AUTH_KEY));
+    if (savedAuth && typeof savedAuth === 'object') {
+      globalAuth.bearer = savedAuth.bearer || '';
+      globalAuth.apikeyHeader = savedAuth.apikeyHeader || 'X-API-Key';
+      globalAuth.apikeyValue = savedAuth.apikeyValue || '';
+      globalAuth.basicUser = savedAuth.basicUser || '';
+      globalAuth.basicPass = savedAuth.basicPass || '';
+    }
+  } catch (e) { /* corrupt state — start clean */ }
+
+  function persistAuth() {
+    try { localStorage.setItem(AUTH_KEY, JSON.stringify(globalAuth)); } catch (e) { /* storage unavailable */ }
+  }
+
   // Compute which auth schemes are actually used by any endpoint
   var usedSchemes = new Set();
   (data.endpoints || []).forEach(function (ep) {
@@ -563,8 +581,11 @@
 
     var lines = ['curl -X ' + ep.method + ' ' + JSON.stringify(url)];
 
-    // Auth headers — use the endpoint's required scheme
-    var epScheme = (ep.auth && ep.auth.required && ep.auth.schemes && ep.auth.schemes.length > 0) ? ep.auth.schemes[0] : null;
+    // Auth headers — use the endpoint's required scheme; when detection found
+    // none (auth middleware the analyzer couldn't classify), fall back to
+    // whichever credentials are configured so "Authorize once, try anything"
+    // still works. A superfluous auth header on a public endpoint is harmless.
+    var epScheme = (ep.auth && ep.auth.required && ep.auth.schemes && ep.auth.schemes.length > 0) ? ep.auth.schemes[0] : getAuthType();
     if (epScheme === 'bearer' && globalAuth.bearer) {
       lines.push('  -H "Authorization: Bearer ' + globalAuth.bearer + '"');
     } else if (epScheme === 'apikey' && globalAuth.apikeyValue) {
@@ -1220,7 +1241,13 @@
       }
       return '<span class="try-it-auth warning">&#9888; No ' + esc(scheme) + ' auth configured — this request will likely fail</span>';
     }
-    return '<span>No auth required</span>';
+    // No scheme detected for this endpoint. If credentials are configured they
+    // are still attached (fallback), so say so instead of "No auth required" —
+    // detection can miss auth middleware, and silence would be misleading.
+    if (hasAuth()) {
+      return ICON_LOCK + ' <span>' + esc(getAuthType()) + ' configured (auto-attached)</span>';
+    }
+    return '<span>No auth detected — set a token in Authorize if needed</span>';
   }
 
   // ============================================================
@@ -1365,8 +1392,10 @@
       }
     });
 
-    // Auth — use the endpoint's required scheme
-    var epScheme = (ep.auth && ep.auth.required && ep.auth.schemes && ep.auth.schemes.length > 0) ? ep.auth.schemes[0] : null;
+    // Auth — use the endpoint's required scheme; when detection found none,
+    // fall back to whichever credentials are configured (see buildCurl) so a
+    // token set in Authorize is applied to every Try It request.
+    var epScheme = (ep.auth && ep.auth.required && ep.auth.schemes && ep.auth.schemes.length > 0) ? ep.auth.schemes[0] : getAuthType();
     if (epScheme === 'bearer' && globalAuth.bearer) {
       headers['Authorization'] = 'Bearer ' + globalAuth.bearer;
     } else if (epScheme === 'apikey' && globalAuth.apikeyValue) {
@@ -1514,6 +1543,7 @@
     if (!token) return;
     globalAuth.bearer = token;
     document.getElementById('auth-bearer-token').value = token;
+    persistAuth();
     updateAuthUI();
     btn.textContent = 'Token saved globally';
     btn.disabled = true;
@@ -1529,9 +1559,13 @@
   var authClear = document.getElementById('auth-modal-clear');
 
   function updateModalSectionVisibility() {
+    // When no endpoint declares a scheme (auth middleware the analyzer could
+    // not classify), show EVERY section instead of an empty modal — the user
+    // knows their API needs a token even when detection doesn't.
+    var showAll = usedSchemes.size === 0;
     authModal.querySelectorAll('.auth-section[data-auth-scheme]').forEach(function (section) {
       var scheme = section.getAttribute('data-auth-scheme');
-      section.style.display = usedSchemes.has(scheme) ? '' : 'none';
+      section.style.display = (showAll || usedSchemes.has(scheme)) ? '' : 'none';
     });
   }
 
@@ -1593,6 +1627,7 @@
     globalAuth.apikeyValue = document.getElementById('auth-apikey-value').value.trim();
     globalAuth.basicUser = document.getElementById('auth-basic-user').value.trim();
     globalAuth.basicPass = document.getElementById('auth-basic-pass').value;
+    persistAuth();
     updateModalStatusIndicators();
     authModal.classList.remove('open');
     updateAuthUI();
@@ -1608,6 +1643,7 @@
     globalAuth.apikeyValue = '';
     globalAuth.basicUser = '';
     globalAuth.basicPass = '';
+    persistAuth();
     updateAuthUI();
   });
 
@@ -2042,6 +2078,9 @@
       closeSidebar();
     }
   });
+
+  // Reflect credentials restored from localStorage in the topbar / Try It UI.
+  updateAuthUI();
 
   // ============================================================
   // SSE live reload — connect when served via godoclive watch
