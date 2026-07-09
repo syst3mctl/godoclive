@@ -483,7 +483,7 @@ func TestExtractBody_ChiBasicJSON(t *testing.T) {
 			t.Fatalf("ResolveHandler(%s) failed: %v", key, err)
 		}
 		pn := resolver.ResolveHandlerParams(fd.Type, info)
-		result := contract.ExtractBody(fd.Body, info, pn)
+		result := contract.ExtractBody(fd.Body, info, pn, pkgs)
 
 		if result.BodyType == nil {
 			t.Fatal("CreateUser: expected body type, got nil")
@@ -532,7 +532,7 @@ func TestExtractBody_GinBasicJSON(t *testing.T) {
 			t.Fatalf("ResolveHandler(%s) failed: %v", key, err)
 		}
 		pn := resolver.ResolveHandlerParams(fd.Type, info)
-		result := contract.ExtractBody(fd.Body, info, pn)
+		result := contract.ExtractBody(fd.Body, info, pn, pkgs)
 
 		if result.BodyType == nil {
 			t.Fatal("CreateItem: expected body type, got nil")
@@ -574,7 +574,7 @@ func TestExtractBody_Multipart(t *testing.T) {
 			t.Fatalf("ResolveHandler(%s) failed: %v", key, err)
 		}
 		pn := resolver.ResolveHandlerParams(fd.Type, info)
-		result := contract.ExtractBody(fd.Body, info, pn)
+		result := contract.ExtractBody(fd.Body, info, pn, pkgs)
 
 		switch key {
 		case "POST /users/{id}/avatar":
@@ -623,7 +623,7 @@ func TestExtractBody_NoBody(t *testing.T) {
 	info := pkgs[0].TypesInfo
 
 	h := handlers["GET /users"]
-	result := contract.ExtractBody(h.body, info, h.paramNames)
+	result := contract.ExtractBody(h.body, info, h.paramNames, pkgs)
 	if result.BodyType != nil {
 		t.Error("GET /users should not have a body type")
 	}
@@ -668,5 +668,69 @@ func TestExtractQueryParams_FormValue(t *testing.T) {
 		if params[0].Name != "title" {
 			t.Errorf("expected param name 'title', got %q", params[0].Name)
 		}
+	}
+}
+
+// --- Body helper tracing (net/http, one level) ---
+
+// TestExtractBody_HelperTraced covers the shared-decode-helper idiom
+// (decodeJSON(w, r, &req) / bindJSON(w, r, &req)): the decode lives one level
+// down, its `dst any` parameter mapped back to the caller's concrete argument.
+// Without tracing these handlers documented NO body — the bug that forced
+// production services to decode inline purely for the docs.
+func TestExtractBody_HelperTraced(t *testing.T) {
+	dir := testdataDir("stdlib-body-helper")
+	pkgs, err := loader.LoadPackages(dir, "./...")
+	if err != nil {
+		t.Fatalf("LoadPackages failed: %v", err)
+	}
+
+	ext := &extractor.StdlibExtractor{}
+	routes, err := ext.Extract(pkgs)
+	if err != nil {
+		t.Fatalf("Extract failed: %v", err)
+	}
+
+	info := pkgs[0].TypesInfo
+
+	want := map[string]string{
+		"POST /items":        "createItemRequest", // json.NewDecoder(r.Body).Decode(dst) helper
+		"POST /items/rename": "renameItemRequest", // io.ReadAll + json.Unmarshal(raw, dst) helper
+	}
+	seen := 0
+	for _, route := range routes {
+		key := route.Method + " " + route.Path
+		wantType, ok := want[key]
+		if !ok {
+			continue
+		}
+		seen++
+
+		fd, _, err := resolver.ResolveHandler(route.HandlerExpr, info, pkgs)
+		if err != nil {
+			t.Fatalf("ResolveHandler(%s) failed: %v", key, err)
+		}
+		pn := resolver.ResolveHandlerParams(fd.Type, info)
+
+		result := contract.ExtractBody(fd.Body, info, pn, pkgs)
+		if result.BodyType == nil {
+			t.Errorf("%s: expected helper-traced body type, got nil", key)
+			continue
+		}
+		named, ok := result.BodyType.(*types.Named)
+		if !ok || named.Obj().Name() != wantType {
+			t.Errorf("%s: body type = %v, want %s", key, result.BodyType, wantType)
+		}
+		if result.ContentType != "application/json" {
+			t.Errorf("%s: content type = %q, want application/json", key, result.ContentType)
+		}
+
+		// One level only + backward compat: nil pkgs must disable tracing.
+		if noTrace := contract.ExtractBody(fd.Body, info, pn, nil); noTrace.BodyType != nil {
+			t.Errorf("%s: nil pkgs should disable helper tracing, got %v", key, noTrace.BodyType)
+		}
+	}
+	if seen != len(want) {
+		t.Fatalf("saw %d of %d expected routes", seen, len(want))
 	}
 }

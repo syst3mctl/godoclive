@@ -4,6 +4,8 @@ import (
 	"go/ast"
 	"go/types"
 
+	"golang.org/x/tools/go/packages"
+
 	"github.com/syst3mctl/godoclive/internal/model"
 	"github.com/syst3mctl/godoclive/internal/resolver"
 )
@@ -21,7 +23,12 @@ type BodyResult struct {
 
 // ExtractBody walks a handler function body and detects request body patterns
 // for both net/http (json.NewDecoder/Unmarshal) and gin (ShouldBindJSON, etc.).
-func ExtractBody(body *ast.BlockStmt, info *types.Info, paramNames resolver.HandlerParamNames) BodyResult {
+//
+// When pkgs is non-nil, net/http handlers additionally get ONE level of helper
+// tracing (mirroring response extraction): a call like decodeJSON(w, r, &req)
+// whose callee decodes the request body into one of its parameters resolves the
+// body schema from the CALLER's concrete argument. Pass nil to disable tracing.
+func ExtractBody(body *ast.BlockStmt, info *types.Info, paramNames resolver.HandlerParamNames, pkgs []*packages.Package) BodyResult {
 	result := BodyResult{}
 	if body == nil || info == nil {
 		return result
@@ -130,10 +137,189 @@ func ExtractBody(body *ast.BlockStmt, info *types.Info, paramNames resolver.Hand
 			return false
 		}
 
+		// --- Helper tracing (net/http, one level only) ---
+
+		// decodeJSON(w, r, &req)-style helpers: the decode lives in a shared
+		// function, so none of the direct matchers above fire in the handler.
+		if pkgs != nil && result.BodyType == nil {
+			if t, ok := traceBodyHelper(call, info, paramNames, pkgs); ok {
+				result.BodyType = t
+				result.ContentType = "application/json"
+				return false
+			}
+		}
+
 		return true
 	})
 
 	return result
+}
+
+// traceBodyHelper resolves a handler-level call that passes the *http.Request
+// along (decodeJSON(w, r, &req), bind(r, &req), …) to its function declaration
+// and scans that body — ONE level, no deeper recursion — for the net/http JSON
+// decode patterns. When the helper decodes into one of its own parameters
+// (typically `dst any`), the body type is mapped back to the CALLER's concrete
+// argument (&req → req's struct type), the same param-index mapping response
+// tracing uses; a helper that decodes into a concrete local type contributes
+// that type directly. Interface-typed results are rejected — `any` documents
+// nothing.
+func traceBodyHelper(call *ast.CallExpr, info *types.Info, pn resolver.HandlerParamNames, pkgs []*packages.Package) (types.Type, bool) {
+	if pn.Request == "" || len(call.Args) == 0 {
+		return nil, false
+	}
+
+	// The helper must receive the request to be able to read its body.
+	carriesRequest := false
+	for _, arg := range call.Args {
+		if id, ok := arg.(*ast.Ident); ok && id.Name == pn.Request {
+			carriesRequest = true
+			break
+		}
+	}
+	if !carriesRequest {
+		return nil, false
+	}
+
+	// Resolve the callee, skipping stdlib/router packages.
+	var obj types.Object
+	switch fn := call.Fun.(type) {
+	case *ast.Ident:
+		obj = info.Uses[fn]
+	case *ast.SelectorExpr:
+		obj = info.Uses[fn.Sel]
+	default:
+		return nil, false
+	}
+	fnObj, ok := obj.(*types.Func)
+	if !ok || fnObj.Pkg() == nil || skipPackages[fnObj.Pkg().Path()] {
+		return nil, false
+	}
+
+	fd := findHelperFuncDecl(fnObj, pkgs)
+	if fd == nil || fd.Body == nil {
+		return nil, false
+	}
+
+	// The helper body's AST is type-checked in the helper package's TypesInfo
+	// (see helperFuncInfo) — the caller's info yields nothing cross-package.
+	helperInfo := helperFuncInfo(fnObj, pkgs)
+	if helperInfo == nil {
+		helperInfo = info
+	}
+	helperPN := resolver.ResolveHandlerParams(fd.Type, helperInfo)
+
+	dest := bodyDecodeDest(fd.Body, helperPN.Request)
+	if dest == nil {
+		return nil, false
+	}
+
+	// Strip a leading & so `&dst` and `dst` map the same way.
+	if unary, ok := dest.(*ast.UnaryExpr); ok {
+		dest = unary.X
+	}
+
+	// Preferred path: the decode target names a helper PARAMETER — resolve the
+	// caller's matching argument for the concrete schema type.
+	if id, ok := dest.(*ast.Ident); ok {
+		if callerIdx, found := helperParamIndex(fd)[id.Name]; found && callerIdx < len(call.Args) {
+			if t, ok := extractArgType(call.Args[callerIdx], info); ok && !isInterfaceType(t) {
+				return t, true
+			}
+			return nil, false
+		}
+	}
+
+	// Fallback: the helper decodes into a concrete local — use its own type.
+	if t, ok := extractArgType(dest, helperInfo); ok && !isInterfaceType(t) {
+		return t, true
+	}
+	return nil, false
+}
+
+// bodyDecodeDest finds the destination expression of the first net/http JSON
+// decode inside a helper body: json.NewDecoder(<req>.Body).Decode(dst) (when the
+// helper has a request param) or json.Unmarshal(raw, dst). The Unmarshal form is
+// accepted ONLY when the helper body also touches <req>.Body somewhere (the
+// read-then-unmarshal idiom reads it via io.ReadAll/MaxBytesReader) — otherwise a
+// helper that unmarshals something unrelated (an upstream response, a config
+// blob) would fabricate a request schema. Nested function literals are scanned
+// (helpers often wrap the decode in a closure), but no further function CALLS
+// are followed — one level only.
+func bodyDecodeDest(body *ast.BlockStmt, reqName string) ast.Expr {
+	// The read-then-unmarshal guard: does this helper read the request body at all?
+	readsBody := reqName != "" && mentionsRequestBody(body, reqName)
+
+	var dest ast.Expr
+	ast.Inspect(body, func(n ast.Node) bool {
+		if dest != nil {
+			return false
+		}
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+
+		switch sel.Sel.Name {
+		case "Decode":
+			// json.NewDecoder(<reqName>.Body).Decode(dst) — the decoder argument may
+			// also be a MaxBytesReader-wrapped body; accept any argument expression
+			// that mentions <reqName>.Body.
+			newDecCall, ok := sel.X.(*ast.CallExpr)
+			if !ok || len(call.Args) != 1 {
+				return true
+			}
+			newDecSel, ok := newDecCall.Fun.(*ast.SelectorExpr)
+			if !ok || newDecSel.Sel.Name != "NewDecoder" {
+				return true
+			}
+			if pkg, ok := newDecSel.X.(*ast.Ident); !ok || pkg.Name != "json" {
+				return true
+			}
+			if reqName == "" || len(newDecCall.Args) != 1 || !mentionsRequestBody(newDecCall.Args[0], reqName) {
+				return true
+			}
+			dest = call.Args[0]
+			return false
+
+		case "Unmarshal":
+			if !readsBody {
+				return true
+			}
+			if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "json" && len(call.Args) == 2 {
+				dest = call.Args[1]
+				return false
+			}
+		}
+		return true
+	})
+	return dest
+}
+
+// mentionsRequestBody reports whether node contains <reqName>.Body anywhere —
+// covering both a bare r.Body and wrapped forms like
+// http.MaxBytesReader(w, r.Body, n) or io.LimitReader(r.Body, n).
+func mentionsRequestBody(node ast.Node, reqName string) bool {
+	found := false
+	ast.Inspect(node, func(n ast.Node) bool {
+		if found {
+			return false
+		}
+		sel, ok := n.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != "Body" {
+			return true
+		}
+		if id, ok := sel.X.(*ast.Ident); ok && id.Name == reqName {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
 }
 
 // matchJSONDecoderDecode matches json.NewDecoder(r.Body).Decode(&req).

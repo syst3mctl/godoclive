@@ -51,8 +51,8 @@ func ExtractContract(
 	// 3. Headers.
 	headers := ExtractHeaders(body, info, paramNames)
 
-	// 4. Request body.
-	bodyResult := ExtractBody(body, info, paramNames)
+	// 4. Request body (pkgs enables one-level helper tracing for net/http).
+	bodyResult := ExtractBody(body, info, paramNames, pkgs)
 	unresolved = append(unresolved, bodyResult.Unresolved...)
 
 	// Promote ShouldBindQuery fields to QueryParams.
