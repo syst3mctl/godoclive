@@ -199,6 +199,10 @@ func processRoute(route extractor.RawRoute, pkgs []*packages.Package, typeIdx ma
 		qualifiedName = handlerPkg + "." + handlerName
 	}
 
+	// Caveats recorded during extraction (unknown group origin, empty path)
+	// belong to the endpoint too.
+	unresolved = append(route.Unresolved, unresolved...)
+
 	ep := model.EndpointDef{
 		Method:      route.Method,
 		Path:        route.Path,

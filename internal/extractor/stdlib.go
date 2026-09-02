@@ -3,6 +3,7 @@ package extractor
 import (
 	"go/ast"
 	"go/token"
+	"go/types"
 	"strings"
 
 	"golang.org/x/tools/go/packages"
@@ -26,6 +27,7 @@ func (e *StdlibExtractor) Extract(pkgs []*packages.Package) ([]RawRoute, error) 
 				fset:    pkg.Fset,
 				astFile: file,
 				file:    fpath,
+				info:    pkg.TypesInfo,
 				muxVars: make(map[string]bool),
 			}
 			for _, decl := range file.Decls {
@@ -61,6 +63,7 @@ type stdlibWalker struct {
 	fset    *token.FileSet
 	astFile *ast.File
 	file    string
+	info    *types.Info
 	routes  []RawRoute
 	muxVars map[string]bool // tracks variables assigned from http.NewServeMux()
 }
@@ -164,7 +167,7 @@ func (w *stdlibWalker) addRoute(call *ast.CallExpr, middlewares []ast.Expr) {
 		Method:      method,
 		Path:        path,
 		HandlerExpr: handler,
-		Middlewares: copyExprs(allMW),
+		Middlewares: middlewareRefs(allMW, w.info),
 		File:        w.file,
 		Line:        pos.Line,
 	})

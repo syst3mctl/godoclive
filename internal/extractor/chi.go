@@ -35,7 +35,7 @@ func (e *ChiExtractor) Extract(pkgs []*packages.Package) ([]RawRoute, error) {
 		}
 		for _, file := range pkg.Syntax {
 			fpath := pkg.Fset.Position(file.Pos()).Filename
-			w := &chiWalker{fset: pkg.Fset, astFile: file, file: fpath}
+			w := &chiWalker{fset: pkg.Fset, astFile: file, file: fpath, info: pkg.TypesInfo}
 			// Walk entry-point functions (main, init) and any function that
 			// receives or returns a chi.Router / chi.Mux, since real-world
 			// apps commonly set up routes in setupRoutes() or similar helpers.
@@ -116,6 +116,7 @@ type chiWalker struct {
 	fset    *token.FileSet
 	astFile *ast.File
 	file    string
+	info    *types.Info
 	routes  []RawRoute
 }
 
@@ -200,7 +201,7 @@ func (w *chiWalker) addRoute(method, prefix string, call *ast.CallExpr, middlewa
 		Method:      method,
 		Path:        fullPath,
 		HandlerExpr: call.Args[1],
-		Middlewares: copyExprs(middlewares),
+		Middlewares: middlewareRefs(middlewares, w.info),
 		File:        w.file,
 		Line:        pos.Line,
 	})

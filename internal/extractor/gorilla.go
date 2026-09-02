@@ -230,7 +230,7 @@ func (w *gorillaWalker) addRoute(call *ast.CallExpr, prefix string, middlewares 
 		Method:      "ANY",
 		Path:        fullPath,
 		HandlerExpr: handler,
-		Middlewares: copyExprs(middlewares),
+		Middlewares: middlewareRefs(middlewares, w.info),
 		File:        w.file,
 		Line:        pos.Line,
 	})
@@ -270,7 +270,7 @@ func (w *gorillaWalker) addChainedRoute(call *ast.CallExpr, prefix string, middl
 			Method:      m,
 			Path:        fullPath,
 			HandlerExpr: handler,
-			Middlewares: copyExprs(middlewares),
+			Middlewares: middlewareRefs(middlewares, w.info),
 			File:        w.file,
 			Line:        pos.Line,
 		})
