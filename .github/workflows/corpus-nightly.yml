@@ -1,0 +1,27 @@
+# Nightly corpus gate.
+#
+# The compact RealWorld fixture in testdata/gin-realworld runs on every PR as
+# part of `go test ./...`. This job runs the same release gates against the
+# real gothinkster/golang-gin-realworld-example-app at a pinned commit, so a
+# regression that the fixture's reduction happens to miss still surfaces within
+# a day. The commit is pinned in internal/pipeline/corpus_upstream_test.go.
+name: Corpus (nightly)
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+jobs:
+  upstream-realworld:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Run release gates against upstream RealWorld
+        run: go test -tags corpus -count=1 -run TestCorpus_UpstreamRealWorld ./internal/pipeline/

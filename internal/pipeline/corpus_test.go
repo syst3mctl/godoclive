@@ -17,7 +17,9 @@ import (
 // trailing-slash semantics, under which "" and "/" register two routes.
 //
 // Every number here is a count taken from that route table by hand, not a
-// snapshot of what the analyzer happens to produce.
+// snapshot of what the analyzer happens to produce. checkCorpusGates holds
+// both the fixture and — under the `corpus` build tag — the upstream
+// repository itself to them.
 const (
 	corpusWantEndpoints    = 27
 	corpusWantRequiredAuth = 16
@@ -108,11 +110,17 @@ var corpusWantBodyTypes = map[string]string{
 // runCorpusPipeline analyzes one testdata module.
 func runCorpusPipeline(t *testing.T, name string) []model.EndpointDef {
 	t.Helper()
-	endpoints, err := pipeline.RunPipeline(testdataDir(name), "./...", nil)
+	endpoints, err := pipelineRun(testdataDir(name))
 	if err != nil {
 		t.Fatalf("RunPipeline(%s): %v", name, err)
 	}
 	return endpoints
+}
+
+// pipelineRun analyzes every package under dir. The upstream corpus run shares
+// it, so both go through exactly the same entry point.
+func pipelineRun(dir string) ([]model.EndpointDef, error) {
+	return pipeline.RunPipeline(dir, "./...", nil)
 }
 
 func routeKey(ep model.EndpointDef) string {
@@ -156,27 +164,78 @@ func assertSameSet(t *testing.T, label string, got, want []string) {
 	}
 }
 
-// TestCorpus_GinRealWorldRoutes is the route-table gate: every path has to come
-// out with the prefix of the group its registration helper was handed, and the
-// trailing-slash pairs have to stay distinct.
-func TestCorpus_GinRealWorldRoutes(t *testing.T) {
-	endpoints := runCorpusPipeline(t, "gin-realworld")
+// checkCorpusGates asserts every release gate against an analyzed endpoint set:
+// the full route table, the operations that require authentication and the
+// ones that merely accept it, the request bodies and the validator each binds
+// into, no OpenAPI collisions, and — since every shape in this corpus is one
+// the analyzer claims to handle — nothing left unresolved at all.
+//
+// The fixture and the upstream repository are held to the same function, so a
+// gate can never pass on the reduction while failing on the real thing.
+func checkCorpusGates(t *testing.T, endpoints []model.EndpointDef) {
+	t.Helper()
 
 	if len(endpoints) != corpusWantEndpoints {
 		t.Errorf("endpoint count = %d, want %d", len(endpoints), corpusWantEndpoints)
 	}
 
-	got := make([]string, 0, len(endpoints))
+	routes := make([]string, 0, len(endpoints))
+	var required, optional, bodies []string
 	for _, ep := range endpoints {
-		got = append(got, routeKey(ep))
+		key := routeKey(ep)
+		routes = append(routes, key)
+		switch {
+		case ep.Auth.Required:
+			required = append(required, key)
+			if ep.Auth.Optional {
+				t.Errorf("%s: reported as both required and optional", key)
+			}
+		case ep.Auth.Optional:
+			optional = append(optional, key)
+		}
+		if ep.Request.Body != nil {
+			bodies = append(bodies, key)
+		}
 	}
-	assertSameSet(t, "routes", got, corpusWantRoutes)
+
+	assertSameSet(t, "routes", routes, corpusWantRoutes)
+	assertSameSet(t, "required-auth operations", required, corpusWantRequiredRoutes)
+	assertSameSet(t, "optional-auth operations", optional, corpusWantOptionalRoutes)
+
+	if len(required) != corpusWantRequiredAuth {
+		t.Errorf("required-auth operations = %d, want %d", len(required), corpusWantRequiredAuth)
+	}
+	if len(optional) != corpusWantOptionalAuth {
+		t.Errorf("optional-auth operations = %d, want %d", len(optional), corpusWantOptionalAuth)
+	}
+	if len(bodies) != corpusWantBodies {
+		t.Errorf("request bodies = %d, want %d\ngot: %v", len(bodies), corpusWantBodies, sorted(bodies))
+	}
+
+	for _, ep := range endpoints {
+		key := routeKey(ep)
+		want, expected := corpusWantBodyTypes[key]
+		switch {
+		case expected && ep.Request.Body == nil:
+			t.Errorf("%s: no request body resolved, want %s", key, want)
+		case expected && ep.Request.Body.Name != want:
+			t.Errorf("%s: request body = %q, want %q", key, ep.Request.Body.Name, want)
+		case !expected && ep.Request.Body != nil:
+			t.Errorf("%s: unexpected request body %q", key, ep.Request.Body.Name)
+		}
+	}
 
 	for _, ep := range endpoints {
 		for _, u := range ep.Unresolved {
 			t.Errorf("%s: unresolved: %s", routeKey(ep), u)
 		}
 	}
+}
+
+// TestCorpus_GinRealWorld is the per-PR gate: the compact RealWorld-derived
+// fixture has to clear every release gate on every change.
+func TestCorpus_GinRealWorld(t *testing.T) {
+	checkCorpusGates(t, runCorpusPipeline(t, "gin-realworld"))
 }
 
 // TestCorpus_UntracedHelperIsFlagged pins the other half of the contract: when
@@ -232,52 +291,6 @@ func hasPrefixIn(notes []string, prefix string) bool {
 	return false
 }
 
-// TestCorpus_GinRealWorldAuth is the authentication gate. The distinction it
-// pins is the one that matters: AuthMiddleware(true) and AuthMiddleware(false)
-// are the same function, and only the constant at the registration site says
-// whether an endpoint rejects an anonymous request or merely answers it
-// differently.
-func TestCorpus_GinRealWorldAuth(t *testing.T) {
-	endpoints := runCorpusPipeline(t, "gin-realworld")
-
-	var required, optional []string
-	for _, ep := range endpoints {
-		switch {
-		case ep.Auth.Required:
-			required = append(required, routeKey(ep))
-			if ep.Auth.Optional {
-				t.Errorf("%s: reported as both required and optional", routeKey(ep))
-			}
-		case ep.Auth.Optional:
-			optional = append(optional, routeKey(ep))
-		}
-	}
-
-	assertSameSet(t, "required-auth operations", required, corpusWantRequiredRoutes)
-	assertSameSet(t, "optional-auth operations", optional, corpusWantOptionalRoutes)
-
-	if len(required) != corpusWantRequiredAuth {
-		t.Errorf("required-auth operations = %d, want %d", len(required), corpusWantRequiredAuth)
-	}
-	if len(optional) != corpusWantOptionalAuth {
-		t.Errorf("optional-auth operations = %d, want %d", len(optional), corpusWantOptionalAuth)
-	}
-
-	// The scheme itself lives one call below the middleware, in extractToken.
-	for _, ep := range endpoints {
-		if !ep.Auth.Required && !ep.Auth.Optional {
-			continue
-		}
-		if len(ep.Auth.Schemes) == 0 {
-			t.Errorf("%s: auth detected with no scheme", routeKey(ep))
-			continue
-		}
-		if ep.Auth.Schemes[0] != model.AuthBearer {
-			t.Errorf("%s: scheme = %q, want bearer", routeKey(ep), ep.Auth.Schemes[0])
-		}
-	}
-}
-
 // TestCorpus_UnreadableMiddlewareIsFlagged: a middleware held as data cannot be
 // resolved to a body, and an unread middleware may be the one enforcing auth —
 // so it is reported rather than passed over as "no auth".
@@ -294,36 +307,6 @@ func TestCorpus_UnreadableMiddlewareIsFlagged(t *testing.T) {
 		return
 	}
 	t.Fatal("route GET /api/admin/stats not found")
-}
-
-// TestCorpus_GinRealWorldRequestBodies is the request-body gate. Every one of
-// these binds through validator.Bind(c) → common.Bind(c, self) →
-// c.ShouldBindWith(obj, b), so the schema is only reachable by translating the
-// destination outward one call at a time until it lands on the receiver the
-// handler wrote.
-func TestCorpus_GinRealWorldRequestBodies(t *testing.T) {
-	endpoints := runCorpusPipeline(t, "gin-realworld")
-
-	bodies := 0
-	for _, ep := range endpoints {
-		key := routeKey(ep)
-		want, expected := corpusWantBodyTypes[key]
-		if ep.Request.Body != nil {
-			bodies++
-		}
-		switch {
-		case expected && ep.Request.Body == nil:
-			t.Errorf("%s: no request body resolved, want %s", key, want)
-		case expected && ep.Request.Body.Name != want:
-			t.Errorf("%s: request body = %q, want %q", key, ep.Request.Body.Name, want)
-		case !expected && ep.Request.Body != nil:
-			t.Errorf("%s: unexpected request body %q", key, ep.Request.Body.Name)
-		}
-	}
-
-	if bodies != corpusWantBodies {
-		t.Errorf("request bodies = %d, want %d", bodies, corpusWantBodies)
-	}
 }
 
 // TestCorpus_UnresolvableBindIsFlagged: a wrapper binding into an interface

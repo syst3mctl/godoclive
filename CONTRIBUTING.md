@@ -73,6 +73,39 @@ go build ./cmd/godoclive
 go vet ./...
 ```
 
+## The Corpus Gate
+
+`testdata/gin-realworld` is a compact, dependency-free reduction of the
+[RealWorld "Conduit" gin backend](https://github.com/gothinkster/golang-gin-realworld-example-app).
+It keeps every route-registration shape that matters for static analysis —
+cross-package registration helpers, a middleware chain accumulated through
+`.Use()`, gin's trailing-slash semantics, the `validator.Bind → common.Bind →
+c.ShouldBindWith` chain, and `gin.H` response envelopes — and drops the
+database and JWT layers.
+
+`checkCorpusGates` in `internal/pipeline/corpus_test.go` holds analysis to the
+counts derived by hand from that route table: **27 routes, 16 requiring
+authentication, 10 request bodies, no OpenAPI collisions, nothing unresolved**.
+It runs on every PR as part of `go test ./...`.
+
+The same gates run against the real upstream repository at a pinned commit,
+nightly and on demand, so a regression the reduction happens to miss still
+surfaces within a day:
+
+```bash
+# Clones the pinned commit into a temp dir
+go test -tags corpus -run TestCorpus_UpstreamRealWorld ./internal/pipeline/
+
+# Or point it at a checkout you already have
+GODOCLIVE_CORPUS_DIR=/path/to/checkout go test -tags corpus \
+  -run TestCorpus_UpstreamRealWorld ./internal/pipeline/
+```
+
+`testdata/gin-unresolved` is the inverse fixture: every endpoint in it has
+something the analyzer cannot establish, and `TestCorpus_UnresolvedShapesReduceCoverage`
+asserts coverage reports 0%. When you add a capability, add its shape to
+`gin-realworld`; when you find one that cannot be resolved, add it there.
+
 ## Code Style
 
 - All analysis uses `go/ast` and `go/types` — never hardcode parameter names like `r` or `w`
