@@ -51,7 +51,27 @@ func ListOrphans(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"orphans": []string{}})
 }
 
-// CreateOrphan creates an orphaned record.
+// CreateOrphan binds a payload whose type is only known at runtime.
 func CreateOrphan(c *gin.Context) {
-	c.JSON(http.StatusCreated, gin.H{"id": c.Param("id")})
+	dst := payloadFor(c.Param("id"))
+	if err := bindDynamic(c, dst); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"ok": true})
+}
+
+// bindDynamic binds the request body into a destination chosen by the caller.
+func bindDynamic(c *gin.Context, dst interface{}) error {
+	return c.ShouldBindJSON(dst)
+}
+
+// payloadFor picks a payload type at runtime.
+func payloadFor(kind string) interface{} {
+	if kind == "user" {
+		return &struct {
+			Name string `json:"name"`
+		}{}
+	}
+	return map[string]interface{}{}
 }

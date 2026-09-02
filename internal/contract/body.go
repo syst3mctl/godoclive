@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"fmt"
 	"go/ast"
 	"go/types"
 
@@ -135,6 +136,25 @@ func ExtractBody(body *ast.BlockStmt, info *types.Info, paramNames resolver.Hand
 			result.IsMultipart = true
 			result.ContentType = "multipart/form-data"
 			return false
+		}
+
+		// --- Binding wrapper tracing (gin, bounded multi-level) ---
+
+		// validator.Bind(c) → common.Bind(c, validator) → c.ShouldBindWith(…):
+		// the bind that reads the body is several calls away, so none of the
+		// direct matchers above fire in the handler itself.
+		if pkgs != nil && result.BodyType == nil && paramNames.GinCtx != "" {
+			if traced := traceGinBindWrapper(call, info, paramNames, pkgs); traced.Detected {
+				if traced.Type != nil {
+					result.BodyType = traced.Type
+					result.ContentType = traced.ContentType
+					return false
+				}
+				result.Unresolved = append(result.Unresolved, fmt.Sprintf(
+					"request body: binding wrapper %s() detected but its schema is unresolved — %s",
+					traced.Wrapper, traced.Reason))
+				return false
+			}
 		}
 
 		// --- Helper tracing (net/http, one level only) ---
