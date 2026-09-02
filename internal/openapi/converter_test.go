@@ -2,6 +2,7 @@ package openapi
 
 import (
 	"encoding/json"
+	"sort"
 	"strings"
 	"testing"
 
@@ -457,4 +458,90 @@ func TestConfigPassthrough(t *testing.T) {
 	if len(doc.Servers) != 1 || doc.Servers[0].URL != "https://api.example.com" {
 		t.Error("expected server")
 	}
+}
+
+// TestAmbiguousContentTypeSplitsIntoMediaTypes: a binder that accepts more
+// than one encoding is recorded as "a | b", which is not a media type. OpenAPI
+// says the same thing with one content entry per encoding.
+func TestAmbiguousContentTypeSplitsIntoMediaTypes(t *testing.T) {
+	endpoints := []model.EndpointDef{{
+		Method: "POST",
+		Path:   "/users",
+		Request: model.RequestDef{
+			ContentType: "application/json | application/x-www-form-urlencoded",
+			Body: &model.TypeDef{
+				Name: "CreateUserRequest",
+				Kind: model.KindStruct,
+				Fields: []model.FieldDef{
+					{Name: "Email", JSONName: "email", Type: model.TypeDef{Kind: model.KindPrimitive, Name: "string"}},
+				},
+			},
+		},
+	}}
+
+	doc := Generate(endpoints, Config{Title: "Test", Version: "1.0.0"})
+	content := doc.Paths["/users"].Post.RequestBody.Content
+
+	for _, want := range []string{"application/json", "application/x-www-form-urlencoded"} {
+		if content[want] == nil {
+			t.Errorf("missing media type %q (have %v)", want, mediaTypeKeys(content))
+		}
+	}
+	if len(content) != 2 {
+		t.Errorf("media types = %v, want exactly the two encodings", mediaTypeKeys(content))
+	}
+}
+
+// TestAnonymousStructInlinesProperties: the schema synthesized for a gin.H
+// envelope has no name to register under, so it has to be inlined with its
+// properties rather than flattened to a bare object.
+func TestAnonymousStructInlinesProperties(t *testing.T) {
+	endpoints := []model.EndpointDef{{
+		Method: "GET",
+		Path:   "/user",
+		Responses: []model.ResponseDef{{
+			StatusCode:  200,
+			ContentType: "application/json",
+			Body: &model.TypeDef{
+				Kind: model.KindStruct, // anonymous: no Name
+				Fields: []model.FieldDef{{
+					Name:     "user",
+					JSONName: "user",
+					Type: model.TypeDef{
+						Name: "UserResponse",
+						Kind: model.KindStruct,
+						Fields: []model.FieldDef{
+							{Name: "Email", JSONName: "email", Type: model.TypeDef{Kind: model.KindPrimitive, Name: "string"}},
+						},
+					},
+				}},
+			},
+		}},
+	}}
+
+	doc := Generate(endpoints, Config{Title: "Test", Version: "1.0.0"})
+	schema := doc.Paths["/user"].Get.Responses["200"].Content["application/json"].Schema
+
+	if schema.Ref != "" {
+		t.Fatalf("anonymous envelope was registered as %q, want an inline schema", schema.Ref)
+	}
+	prop, ok := schema.Properties["user"]
+	if !ok {
+		t.Fatalf("inline schema has no %q property", "user")
+	}
+	if prop.Ref != "#/components/schemas/UserResponse" {
+		t.Errorf("property user = %+v, want a $ref to UserResponse", prop)
+	}
+	if doc.Components == nil || doc.Components.Schemas["UserResponse"] == nil {
+		t.Error("UserResponse was not registered in components/schemas")
+	}
+}
+
+func mediaTypeKeys(content map[string]*MediaType) []string {
+	keys := make([]string, 0, len(content))
+	for k := range content {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }

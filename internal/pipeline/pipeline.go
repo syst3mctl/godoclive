@@ -260,11 +260,42 @@ func findPackageForRoute(route extractor.RawRoute, pkgs []*packages.Package) *pa
 	return nil
 }
 
-// resolveAndMapType looks up the types.Type for a TypeDef reference and maps it fully.
-// typeIdx is the pre-built index from buildTypeIndex for O(1) lookups.
+// resolveAndMapType looks up the types.Type for a TypeDef reference and maps it
+// fully. typeIdx is the pre-built index from buildTypeIndex for O(1) lookups.
+//
+// A reference is not always a bare named type: contract extraction also emits
+// composed shapes — a slice of a reference, or the synthetic struct standing in
+// for a gin.H literal whose values are themselves references — so the mapping
+// walks into those and resolves each named type it finds.
 func resolveAndMapType(td *model.TypeDef, info *types.Info, pkg *packages.Package, typeIdx map[string]map[string]types.Type) *model.TypeDef {
 	if td == nil || pkg == nil {
 		return nil
+	}
+
+	// Synthetic struct (a map literal turned into a schema): map each field.
+	if td.Kind == model.KindStruct && td.Name == "" && len(td.Fields) > 0 {
+		out := *td
+		out.Fields = make([]model.FieldDef, len(td.Fields))
+		copy(out.Fields, td.Fields)
+		for i := range out.Fields {
+			if mapped := resolveAndMapType(&out.Fields[i].Type, info, pkg, typeIdx); mapped != nil {
+				out.Fields[i].Type = *mapped
+			}
+		}
+		return &out
+	}
+
+	if td.Kind == model.KindSlice && td.Elem != nil {
+		elem := resolveAndMapType(td.Elem, info, pkg, typeIdx)
+		if elem == nil {
+			return nil
+		}
+		return &model.TypeDef{Kind: model.KindSlice, Elem: elem, IsPointer: td.IsPointer}
+	}
+
+	// Already-concrete leaves carry no name to look up.
+	if td.Kind == model.KindPrimitive || td.Kind == model.KindInterface || td.Kind == model.KindMap {
+		return td
 	}
 
 	t := lookupType(td.Name, td.Package, typeIdx)
@@ -273,6 +304,7 @@ func resolveAndMapType(td *model.TypeDef, info *types.Info, pkg *packages.Packag
 	}
 
 	mapped := mapper.MapType(t, pkg)
+	mapped.IsPointer = mapped.IsPointer || td.IsPointer
 	return &mapped
 }
 
