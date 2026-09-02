@@ -66,16 +66,18 @@ func Generate(endpoints []model.EndpointDef, cfg Config) *Document {
 			tagSet[t] = true
 		}
 
-		// Handle auth → security schemes.
-		if ep.Auth.Required && len(ep.Auth.Schemes) > 0 {
+		// Handle auth → security schemes. Optional auth is expressed the way
+		// OpenAPI expresses it: the schemes, plus an empty requirement saying
+		// the operation is also served without credentials.
+		if (ep.Auth.Required || ep.Auth.Optional) && len(ep.Auth.Schemes) > 0 {
+			var secReqs []SecurityRequirement
 			for _, scheme := range ep.Auth.Schemes {
 				name, secScheme := authSchemeToSecurity(scheme)
 				secSchemes[name] = secScheme
-			}
-			var secReqs []SecurityRequirement
-			for _, scheme := range ep.Auth.Schemes {
-				name, _ := authSchemeToSecurity(scheme)
 				secReqs = append(secReqs, SecurityRequirement{name: {}})
+			}
+			if ep.Auth.Optional {
+				secReqs = append(secReqs, SecurityRequirement{})
 			}
 			op.Security = secReqs
 		}

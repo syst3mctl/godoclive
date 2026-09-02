@@ -375,7 +375,7 @@
   // Compute which auth schemes are actually used by any endpoint
   var usedSchemes = new Set();
   (data.endpoints || []).forEach(function (ep) {
-    if (ep.auth && ep.auth.required && ep.auth.schemes) {
+    if (ep.auth && (ep.auth.required || ep.auth.optional) && ep.auth.schemes) {
       ep.auth.schemes.forEach(function (s) { usedSchemes.add(s); });
     }
   });
@@ -585,7 +585,7 @@
     // none (auth middleware the analyzer couldn't classify), fall back to
     // whichever credentials are configured so "Authorize once, try anything"
     // still works. A superfluous auth header on a public endpoint is harmless.
-    var epScheme = (ep.auth && ep.auth.required && ep.auth.schemes && ep.auth.schemes.length > 0) ? ep.auth.schemes[0] : getAuthType();
+    var epScheme = (ep.auth && (ep.auth.required || ep.auth.optional) && ep.auth.schemes && ep.auth.schemes.length > 0) ? ep.auth.schemes[0] : getAuthType();
     if (epScheme === 'bearer' && globalAuth.bearer) {
       lines.push('  -H "Authorization: Bearer ' + globalAuth.bearer + '"');
     } else if (epScheme === 'apikey' && globalAuth.apikeyValue) {
@@ -849,8 +849,11 @@
         html += '</div>';
         html += '<div class="card-header-right">';
         // Auth badge
-        if (ep.auth && ep.auth.required && ep.auth.schemes.length > 0) {
-          html += '<span class="auth-badge">' + authIcon(ep.auth.schemes[0]) + ' ' + esc(ep.auth.schemes.join(', ')) + '</span>';
+        if (ep.auth && (ep.auth.required || ep.auth.optional) && ep.auth.schemes.length > 0) {
+          // Optional auth is called out: the endpoint answers without
+          // credentials, but answers differently with them.
+          var authLabel = esc(ep.auth.schemes.join(', ')) + (ep.auth.required ? '' : ' (optional)');
+          html += '<span class="auth-badge">' + authIcon(ep.auth.schemes[0]) + ' ' + authLabel + '</span>';
         }
         // Partial badge
         if (ep.unresolved && ep.unresolved.length > 0) {
@@ -1231,10 +1234,14 @@
   }
 
   function renderTryItAuth(ep) {
-    if (ep.auth && ep.auth.required && ep.auth.schemes && ep.auth.schemes.length > 0) {
+    if (ep.auth && (ep.auth.required || ep.auth.optional) && ep.auth.schemes && ep.auth.schemes.length > 0) {
       var scheme = ep.auth.schemes[0];
       if (hasAuthFor(scheme)) {
         return ICON_LOCK + ' <span>' + scheme + ' configured</span>';
+      }
+      if (ep.auth.optional) {
+        // Not a warning: the request succeeds either way, the response differs.
+        return '<span>' + esc(scheme) + ' auth is optional here — the response may differ when configured</span>';
       }
       if (hasAuth()) {
         return '<span class="try-it-auth warning">&#9888; This endpoint requires ' + esc(scheme) + ' auth — configure it in Authorize</span>';
@@ -1395,7 +1402,7 @@
     // Auth — use the endpoint's required scheme; when detection found none,
     // fall back to whichever credentials are configured (see buildCurl) so a
     // token set in Authorize is applied to every Try It request.
-    var epScheme = (ep.auth && ep.auth.required && ep.auth.schemes && ep.auth.schemes.length > 0) ? ep.auth.schemes[0] : getAuthType();
+    var epScheme = (ep.auth && (ep.auth.required || ep.auth.optional) && ep.auth.schemes && ep.auth.schemes.length > 0) ? ep.auth.schemes[0] : getAuthType();
     if (epScheme === 'bearer' && globalAuth.bearer) {
       headers['Authorization'] = 'Bearer ' + globalAuth.bearer;
     } else if (epScheme === 'apikey' && globalAuth.apikeyValue) {

@@ -34,7 +34,7 @@ func TestDetectAuth_JWTBearer(t *testing.T) {
 	// Find the GET /users route — should have JWT auth.
 	for _, route := range routes {
 		if route.Method == "GET" && route.Path == "/users" {
-			authDef := auth.DetectAuth(route.Middlewares, info, pkgs)
+			authDef, _ := auth.DetectAuth(route.Middlewares, info, pkgs)
 			if !authDef.Required {
 				t.Error("GET /users should require auth")
 			}
@@ -71,7 +71,7 @@ func TestDetectAuth_APIKey(t *testing.T) {
 	// Find GET /webhooks — should have API key auth.
 	for _, route := range routes {
 		if route.Method == "GET" && route.Path == "/webhooks" {
-			authDef := auth.DetectAuth(route.Middlewares, info, pkgs)
+			authDef, _ := auth.DetectAuth(route.Middlewares, info, pkgs)
 			if !authDef.Required {
 				t.Error("GET /webhooks should require auth")
 			}
@@ -111,7 +111,7 @@ func TestDetectAuth_Basic(t *testing.T) {
 	// Find GET /admin/stats — should have basic auth.
 	for _, route := range routes {
 		if route.Method == "GET" && route.Path == "/admin/stats" {
-			authDef := auth.DetectAuth(route.Middlewares, info, pkgs)
+			authDef, _ := auth.DetectAuth(route.Middlewares, info, pkgs)
 			if !authDef.Required {
 				t.Error("GET /admin/stats should require auth")
 			}
@@ -148,7 +148,7 @@ func TestDetectAuth_Public(t *testing.T) {
 	// Find GET /health — should have no auth.
 	for _, route := range routes {
 		if route.Method == "GET" && route.Path == "/health" {
-			authDef := auth.DetectAuth(route.Middlewares, info, pkgs)
+			authDef, _ := auth.DetectAuth(route.Middlewares, info, pkgs)
 			if authDef.Required {
 				t.Error("GET /health should not require auth")
 			}
@@ -190,7 +190,7 @@ func TestDetectAuth_FactoryVarMiddleware(t *testing.T) {
 		switch {
 		case route.Method == "GET" && route.Path == "/items":
 			sawItems = true
-			authDef := auth.DetectAuth(route.Middlewares, info, pkgs)
+			authDef, _ := auth.DetectAuth(route.Middlewares, info, pkgs)
 			if !authDef.Required {
 				t.Error("GET /items should require auth (factory-var middleware)")
 			}
@@ -205,7 +205,7 @@ func TestDetectAuth_FactoryVarMiddleware(t *testing.T) {
 			}
 		case route.Method == "GET" && route.Path == "/public":
 			sawPublic = true
-			authDef := auth.DetectAuth(route.Middlewares, info, pkgs)
+			authDef, _ := auth.DetectAuth(route.Middlewares, info, pkgs)
 			if authDef.Required {
 				t.Error("GET /public should not require auth")
 			}
