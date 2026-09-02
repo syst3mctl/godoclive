@@ -78,7 +78,10 @@ func RunPipeline(dir, pattern string, cfg *config.Config) ([]model.EndpointDef, 
 		endpoints = append(endpoints, ep)
 	}
 
-	// 9. Apply config exclusions and overrides.
+	// 9. Record the gaps only visible across the whole endpoint set.
+	endpoints = annotateAnalysisGaps(endpoints)
+
+	// 10. Apply config exclusions and overrides.
 	if cfg != nil {
 		endpoints = config.ApplyExclusions(endpoints, cfg.Exclude)
 		endpoints = config.ApplyOverrides(endpoints, cfg.Overrides)
@@ -403,4 +406,81 @@ func posToFileLine(pos token.Pos, pkgs []*packages.Package) (string, int) {
 		}
 	}
 	return "", 0
+}
+
+// annotateAnalysisGaps records the caveats that only become visible once every
+// endpoint is known, so that coverage reporting reflects them.
+//
+// Two endpoints are an OpenAPI collision when they share a method and a path
+// that differ only in the *names* of their template parameters: the
+// specification treats /articles/{slug} and /articles/{id} as the same path,
+// so one operation silently replaces the other in the generated document. A
+// path that is empty or not rooted at "/" is likewise reported rather than
+// emitted as if it were a real route.
+func annotateAnalysisGaps(endpoints []model.EndpointDef) []model.EndpointDef {
+	byKey := make(map[string][]int, len(endpoints))
+	for i, ep := range endpoints {
+		key := ep.Method + " " + normalizeTemplatedPath(ep.Path)
+		byKey[key] = append(byKey[key], i)
+	}
+
+	for _, idxs := range byKey {
+		if len(idxs) < 2 {
+			continue
+		}
+		for _, i := range idxs {
+			var others []string
+			for _, j := range idxs {
+				if j == i {
+					continue
+				}
+				others = append(others, fmt.Sprintf("%s %s (%s:%d)",
+					endpoints[j].Method, endpoints[j].Path, endpoints[j].File, endpoints[j].Line))
+			}
+			endpoints[i].Unresolved = append(endpoints[i].Unresolved, fmt.Sprintf(
+				"openapi collision: %s %s collides with %s — paths differing only in parameter names are the same path in OpenAPI, so only one operation survives",
+				endpoints[i].Method, endpoints[i].Path, strings.Join(others, ", ")))
+		}
+	}
+
+	for i, ep := range endpoints {
+		if ep.Path != "" && strings.HasPrefix(ep.Path, "/") {
+			continue
+		}
+		if hasNotePrefix(ep.Unresolved, "empty route path") {
+			continue // the extractor already explained this one, with context
+		}
+		if ep.Path == "" {
+			endpoints[i].Unresolved = append(endpoints[i].Unresolved,
+				"empty route path: no path could be resolved for this registration")
+			continue
+		}
+		endpoints[i].Unresolved = append(endpoints[i].Unresolved, fmt.Sprintf(
+			"malformed route path %q: a route path must start with %q", ep.Path, "/"))
+	}
+
+	return endpoints
+}
+
+// normalizeTemplatedPath replaces every {param} with a placeholder so that
+// paths differing only in parameter names compare equal, matching OpenAPI's
+// own definition of path identity.
+func normalizeTemplatedPath(p string) string {
+	segments := strings.Split(p, "/")
+	for i, seg := range segments {
+		if strings.HasPrefix(seg, "{") && strings.HasSuffix(seg, "}") {
+			segments[i] = "{}"
+		}
+	}
+	return strings.Join(segments, "/")
+}
+
+// hasNotePrefix reports whether any note starts with prefix.
+func hasNotePrefix(notes []string, prefix string) bool {
+	for _, n := range notes {
+		if strings.HasPrefix(n, prefix) {
+			return true
+		}
+	}
+	return false
 }

@@ -182,6 +182,17 @@ godoclive validate --json ./...
 | `--json` | `false` | Output as JSON |
 | `--verbose` | `false` | Show full unresolved list per endpoint |
 
+Coverage counts an endpoint as resolved only when nothing about it is in
+doubt. These all reduce it, and are grouped by category in the report:
+
+| Category | Meaning |
+|----------|---------|
+| `route group origin unknown` | Routes registered on a router parameter whose call site could not be traced — the prefix and middleware chain (including auth) are incomplete |
+| `empty route path` / `unresolved route path` | The registered path is empty, or is not a compile-time constant |
+| `openapi collision` | Two operations share a method and a path that differ only in parameter names — OpenAPI treats these as the same path, so one silently replaces the other |
+| `middleware` | A middleware defined in the analyzed packages could not be resolved, so auth requirements may be understated |
+| `request body` | A binding wrapper was recognized but its schema could not be traced to a concrete type |
+
 ## Ignoring Routes
 
 ### `//godoclive:ignore` directive

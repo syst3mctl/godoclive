@@ -201,8 +201,8 @@ func TestCorpus_UntracedHelperIsFlagged(t *testing.T) {
 		}
 	}
 	for _, ep := range endpoints {
-		if routeKey(ep) == "GET /api/items/{id}" && len(ep.Unresolved) > 0 {
-			t.Errorf("GET /api/items/{id} is fully traceable but reported: %v", ep.Unresolved)
+		if routeKey(ep) == "GET /api/items/{id}" && hasPrefixIn(ep.Unresolved, "route group origin") {
+			t.Errorf("GET /api/items/{id} has a traceable group but was flagged: %v", ep.Unresolved)
 		}
 	}
 
