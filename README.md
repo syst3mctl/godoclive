@@ -349,21 +349,24 @@ Measured across 12 testdata projects with 50 endpoints:
 
 ## Performance
 
-Benchmarks run on Apple M2 Pro, Go 1.25, using the testdata projects included in the repository.
-Run them yourself: `go test -bench=. -benchmem ./internal/pipeline/ ./internal/generator/`
+Benchmarks run on Apple M2 Pro against the 27-route `gin-realworld` fixture. Results are the
+median of five runs with a warm Go build cache. Run them yourself with
+`go test -bench=. -benchmem ./internal/pipeline/ ./internal/generator/`.
 
 ### Analysis pipeline
 
-| Benchmark | Routes | Time | Memory |
-|-----------|--------|------|--------|
-| `LoadPackages` (chi-basic) | — | ~426 ms | 572 MB / 5.9 M allocs |
-| `RunPipeline` chi-basic | 6 | ~429 ms | 572 MB / 5.9 M allocs |
-| `RunPipeline` gorilla-basic | 8 | ~429 ms | 552 MB / 5.7 M allocs |
-| `RunPipeline` gin-basic | 5 | ~538 ms | 840 MB / 8.7 M allocs |
+| Implementation | Go | Time | Heap allocated | Allocations | Speedup |
+|----------------|----|------|----------------|-------------|---------|
+| v0.4.15 baseline | 1.25 | ~725 ms | 823 MiB | 8.80 M | — |
+| Current | 1.25 | **~155 ms** | **10.3 MiB** | **88.0 K** | **4.66×** |
+| v0.4.15 baseline | 1.27 | ~691 ms | 882 MiB | 9.64 M | — |
+| Current | 1.27 | **~170 ms** | **12.0 MiB** | **93.6 K** | **4.06×** |
 
-**The dominant cost is `go/packages` type-checking** — loading and type-checking the full dependency tree via `NeedDeps`. Route extraction, contract analysis, struct mapping, and type lookups together add less than 5 ms on top. Memory is not retained after the call; it is held only during analysis and released when the returned `[]EndpointDef` is in scope.
-
-The type-lookup path was optimised in v0.1.0: a single `packages.Visit` traversal builds a `pkgPath → name → types.Type` index at pipeline start, replacing the previous O(N×routes×deps) repeated traversals with O(1) map lookups.
+Dependencies are type-checked from export data rather than parsed from source. Only the
+application packages retain syntax trees, and declaration lookups scan those packages directly
+instead of walking the dependency graph once per route. Compared with v0.4.15, the combined
+change is 4.1–4.7× faster and performs about 100× fewer allocations. The reported heap is total
+memory allocated during one analysis; it is not retained after the call.
 
 ### Documentation generation
 
