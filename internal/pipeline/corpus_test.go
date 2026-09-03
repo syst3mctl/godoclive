@@ -437,3 +437,31 @@ func fieldNames(td *model.TypeDef) []string {
 	}
 	return names
 }
+
+// TestCorpus_GinRealWorldAbortResponses: an abort is a response. A handler that
+// rejects an anonymous request with c.AbortWithError(401, …) returns 401 at
+// runtime, and documenting only the success and not-found paths tells a client
+// the wrong thing about what it has to handle.
+func TestCorpus_GinRealWorldAbortResponses(t *testing.T) {
+	endpoints := runCorpusPipeline(t, "gin-realworld")
+	ep := corpusEndpoint(t, endpoints, "GET /api/articles/feed")
+
+	statuses := make([]int, 0, len(ep.Responses))
+	var unauthorized *model.ResponseDef
+	for i, r := range ep.Responses {
+		statuses = append(statuses, r.StatusCode)
+		if r.StatusCode == 401 {
+			unauthorized = &ep.Responses[i]
+		}
+	}
+
+	if unauthorized == nil {
+		t.Fatalf("no 401 documented for the feed; got %v", statuses)
+	}
+	if unauthorized.Body != nil {
+		t.Errorf("401 carries a body %+v; an abort writes a status and nothing else", unauthorized.Body)
+	}
+	if unauthorized.Description != "Unauthorized" {
+		t.Errorf("401 description = %q, want %q", unauthorized.Description, "Unauthorized")
+	}
+}

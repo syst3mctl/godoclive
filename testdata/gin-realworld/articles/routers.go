@@ -66,6 +66,11 @@ func ArticleFeed(c *gin.Context) {
 	offset := c.DefaultQuery("offset", "0")
 	_, _ = limit, offset
 
+	if _, ok := c.Get("my_user_model"); !ok {
+		_ = c.AbortWithError(http.StatusUnauthorized, errors.New("require auth"))
+		return
+	}
+
 	serializer := ArticlesSerializer{c, []ArticleModel{}}
 	c.JSON(http.StatusOK, gin.H{"articles": serializer.Response(), "articlesCount": 0})
 }
