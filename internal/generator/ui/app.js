@@ -559,6 +559,23 @@
     return result;
   }
 
+  // A binder that accepts more than one encoding is documented as
+  // "application/json | application/x-www-form-urlencoded". That is accurate as
+  // documentation but is not a media type: a request has to pick one. JSON when
+  // it is on offer, since the generated example body is JSON, otherwise the
+  // first encoding listed.
+  function requestContentType(contentType) {
+    if (!contentType) return 'application/json';
+    var parts = contentType.split('|').map(function (p) {
+      return p.trim();
+    }).filter(Boolean);
+    if (!parts.length) return 'application/json';
+    for (var i = 0; i < parts.length; i++) {
+      if (parts[i].indexOf('json') >= 0) return parts[i];
+    }
+    return parts[0];
+  }
+
   // ============================================================
   // curl snippet generation
   // ============================================================
@@ -601,7 +618,7 @@
 
     // Body
     if (ep.body && ep.body.example) {
-      lines.push('  -H "Content-Type: ' + ep.body.contentType + '"');
+      lines.push('  -H "Content-Type: ' + requestContentType(ep.body.contentType) + '"');
       lines.push("  -d '" + ep.body.example + "'");
     }
 
@@ -1203,7 +1220,7 @@
     var showBodyArea = ep.body || bodyMethods.indexOf(ep.method) >= 0;
     if (showBodyArea) {
       var bodyExample = (ep.body && ep.body.example) ? ep.body.example : '';
-      var ctypeLabel = ep.body ? ep.body.contentType : 'application/json';
+      var ctypeLabel = requestContentType(ep.body && ep.body.contentType);
       h += '<div class="try-it-row">';
       h += '<span class="try-it-label">Body</span>';
       h += '<div class="try-it-body-wrapper">';
@@ -1391,7 +1408,7 @@
     // Headers
     var headers = {};
     if (body) {
-      headers['Content-Type'] = ep.body ? ep.body.contentType : 'application/json';
+      headers['Content-Type'] = requestContentType(ep.body && ep.body.contentType);
     }
     panel.querySelectorAll('.try-it-param-input[data-header]').forEach(function (input) {
       if (input.value) {
