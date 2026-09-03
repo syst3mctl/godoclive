@@ -5,6 +5,8 @@ import (
 	"runtime"
 	"testing"
 
+	"golang.org/x/tools/go/packages"
+
 	"github.com/syst3mctl/godoclive/internal/auth"
 	"github.com/syst3mctl/godoclive/internal/extractor"
 	"github.com/syst3mctl/godoclive/internal/loader"
@@ -217,4 +219,72 @@ func TestDetectAuth_FactoryVarMiddleware(t *testing.T) {
 	if !sawPublic {
 		t.Fatal("GET /public route not found")
 	}
+}
+
+// TestDetectAuth_DoesNotTraceIntoDependencies pins the boundary of the
+// credential scan.
+//
+// The scan follows one call level below a middleware body, because the
+// credential read is usually in a small helper. That descent must stay inside
+// the analyzed program: net/http's own (*Request).BasicAuth reads the
+// Authorization header, so following a call into it reports bearer for a route
+// that uses HTTP Basic.
+//
+// The packages here are loaded with NeedDeps on purpose, so every dependency's
+// source IS available to walk. The production load mode does not request it,
+// which alone hides the bug — this test removes that accident and checks the
+// boundary itself, so it keeps holding if the load mode ever changes.
+func TestDetectAuth_DoesNotTraceIntoDependencies(t *testing.T) {
+	cfg := &packages.Config{
+		Dir: testdataDir("mixed-auth"),
+		Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax |
+			packages.NeedTypes | packages.NeedTypesInfo | packages.NeedDeps |
+			packages.NeedImports,
+	}
+	pkgs, err := packages.Load(cfg, "./...")
+	if err != nil {
+		t.Fatalf("packages.Load: %v", err)
+	}
+
+	// Confirm the premise: dependency source really is loaded here.
+	depsParsed := 0
+	roots := map[string]bool{}
+	for _, p := range pkgs {
+		roots[p.PkgPath] = true
+	}
+	packages.Visit(pkgs, func(p *packages.Package) bool {
+		if !roots[p.PkgPath] && len(p.Syntax) > 0 {
+			depsParsed++
+		}
+		return true
+	}, nil)
+	if depsParsed == 0 {
+		t.Fatal("no dependency source was loaded; this test would pass for the wrong reason")
+	}
+
+	ext := &extractor.ChiExtractor{}
+	routes, err := ext.Extract(pkgs)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+
+	for _, route := range routes {
+		if route.Method != "GET" || route.Path != "/admin/stats" {
+			continue
+		}
+		authDef, _ := auth.DetectAuth(route.Middlewares, pkgs[0].TypesInfo, pkgs)
+
+		// BasicAuth() calls r.BasicAuth(); nothing on this route reads a
+		// bearer token.
+		want := []model.AuthScheme{model.AuthBasic}
+		if len(authDef.Schemes) != len(want) || authDef.Schemes[0] != want[0] {
+			t.Errorf("schemes = %v, want %v — a scheme was inferred from a dependency's source",
+				authDef.Schemes, want)
+		}
+		if !authDef.Required {
+			t.Error("basic auth on /admin/stats should be required")
+		}
+		return
+	}
+	t.Fatal("GET /admin/stats route not found")
 }
