@@ -2,6 +2,7 @@ package pipeline_test
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -438,30 +439,83 @@ func fieldNames(td *model.TypeDef) []string {
 	return names
 }
 
+// corpusWantAbortStatuses pins the COMPLETE response status set of the two
+// handlers that reject a request outright, together with where each rejection
+// is written. The sets are read off the handler source, never captured from
+// analyzer output — a gate built from what the analyzer currently says can only
+// ever agree with itself:
+//
+//	ArticleFeed   — c.AbortWithError(401) inline, then 200 on the success path.
+//	ArticleDelete — c.JSON(404) for an unknown slug, abortForbidden(c) one call
+//	                away for a non-author, then 200.
+//
+// The second is the case that matters here: an abort reached through a helper
+// is found by a different switch than an inline one, and only one of the two
+// was fixed initially.
+var corpusWantAbortStatuses = map[string]struct {
+	statuses    []int
+	abortStatus int
+	abortSource string
+}{
+	"GET /api/articles/feed":      {statuses: []int{200, 401}, abortStatus: 401, abortSource: "explicit"},
+	"DELETE /api/articles/{slug}": {statuses: []int{200, 403, 404}, abortStatus: 403, abortSource: "helper"},
+}
+
 // TestCorpus_GinRealWorldAbortResponses: an abort is a response. A handler that
-// rejects an anonymous request with c.AbortWithError(401, …) returns 401 at
-// runtime, and documenting only the success and not-found paths tells a client
-// the wrong thing about what it has to handle.
+// rejects a request returns that status at runtime, and documenting only the
+// success and not-found paths tells a client the wrong thing about what it has
+// to handle — whether the abort is written inline or in a shared helper.
 func TestCorpus_GinRealWorldAbortResponses(t *testing.T) {
 	endpoints := runCorpusPipeline(t, "gin-realworld")
-	ep := corpusEndpoint(t, endpoints, "GET /api/articles/feed")
 
-	statuses := make([]int, 0, len(ep.Responses))
-	var unauthorized *model.ResponseDef
-	for i, r := range ep.Responses {
-		statuses = append(statuses, r.StatusCode)
-		if r.StatusCode == 401 {
-			unauthorized = &ep.Responses[i]
-		}
-	}
+	for route, want := range corpusWantAbortStatuses {
+		t.Run(route, func(t *testing.T) {
+			ep := corpusEndpoint(t, endpoints, route)
 
-	if unauthorized == nil {
-		t.Fatalf("no 401 documented for the feed; got %v", statuses)
+			got := make([]int, 0, len(ep.Responses))
+			var abort *model.ResponseDef
+			for i, r := range ep.Responses {
+				got = append(got, r.StatusCode)
+				if r.StatusCode == want.abortStatus {
+					abort = &ep.Responses[i]
+				}
+			}
+			sort.Ints(got)
+
+			if !reflect.DeepEqual(got, want.statuses) {
+				t.Errorf("response statuses = %v, want %v", got, want.statuses)
+			}
+			if abort == nil {
+				t.Fatalf("no %d documented; got %v", want.abortStatus, got)
+			}
+			if abort.Body != nil {
+				t.Errorf("%d carries a body %+v; an abort writes a status and nothing else",
+					want.abortStatus, abort.Body)
+			}
+			if abort.ContentType != "" {
+				t.Errorf("%d content type = %q, want empty for a body-less abort",
+					want.abortStatus, abort.ContentType)
+			}
+			if abort.Source != want.abortSource {
+				t.Errorf("%d source = %q, want %q — the abort was found by the wrong path",
+					want.abortStatus, abort.Source, want.abortSource)
+			}
+			if abort.Description != descriptionFor(want.abortStatus) {
+				t.Errorf("%d description = %q, want %q",
+					want.abortStatus, abort.Description, descriptionFor(want.abortStatus))
+			}
+		})
 	}
-	if unauthorized.Body != nil {
-		t.Errorf("401 carries a body %+v; an abort writes a status and nothing else", unauthorized.Body)
+}
+
+// descriptionFor is the expected human description for the statuses this test
+// pins, spelled out rather than borrowed from the analyzer's own table.
+func descriptionFor(status int) string {
+	switch status {
+	case 401:
+		return "Unauthorized"
+	case 403:
+		return "Forbidden"
 	}
-	if unauthorized.Description != "Unauthorized" {
-		t.Errorf("401 description = %q, want %q", unauthorized.Description, "Unauthorized")
-	}
+	return ""
 }

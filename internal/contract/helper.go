@@ -257,7 +257,10 @@ func extractGinResponsesFromHelper(body *ast.BlockStmt, info *types.Info, helper
 				responses = append(responses, resp)
 			}
 
-		case "Status":
+		case "Status", "AbortWithStatus", "AbortWithError":
+			// Same three status-only writes the direct extractor matches. The
+			// caller-argument fallback below applies to them too, so a shared
+			// abortWith(c, code) helper resolves its status from the call site.
 			if len(call.Args) >= 1 {
 				code := ResolveStatusCode(call.Args[0], info)
 				if code == -1 {
