@@ -66,6 +66,11 @@ func ArticleFeed(c *gin.Context) {
 	offset := c.DefaultQuery("offset", "0")
 	_, _ = limit, offset
 
+	if _, ok := c.Get("my_user_model"); !ok {
+		_ = c.AbortWithError(http.StatusUnauthorized, errors.New("require auth"))
+		return
+	}
+
 	serializer := ArticlesSerializer{c, []ArticleModel{}}
 	c.JSON(http.StatusOK, gin.H{"articles": serializer.Response(), "articlesCount": 0})
 }
@@ -99,11 +104,22 @@ func ArticleUpdate(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"article": serializer.Response()})
 }
 
+// abortForbidden rejects a caller who does not own the article. Sharing the
+// rejection across handlers is what puts the abort one call away from the
+// handler body, where only helper tracing can find it.
+func abortForbidden(c *gin.Context) {
+	c.AbortWithStatus(http.StatusForbidden)
+}
+
 // ArticleDelete deletes an article.
 func ArticleDelete(c *gin.Context) {
 	slug := c.Param("slug")
 	if _, err := FindOneArticle(slug); err != nil {
 		c.JSON(http.StatusNotFound, common.NewError("articles", errors.New("invalid slug")))
+		return
+	}
+	if c.GetString("my_user_model") == "" {
+		abortForbidden(c)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"article": "Delete success"})

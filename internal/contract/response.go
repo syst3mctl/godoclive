@@ -123,7 +123,10 @@ func extractGinResponses(body *ast.BlockStmt, info *types.Info, pn resolver.Hand
 				responses = append(responses, resp)
 			}
 
-		case "Status":
+		case "Status", "AbortWithStatus", "AbortWithError":
+			// All three write a status and no body. AbortWithError also
+			// attaches the error to the context, but gin does not serialize it
+			// into the response, so there is nothing to document as a payload.
 			if len(call.Args) >= 1 {
 				code := ResolveStatusCode(call.Args[0], info)
 				if code == -1 {
