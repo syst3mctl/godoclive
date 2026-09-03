@@ -119,10 +119,7 @@ func extractGinResponses(body *ast.BlockStmt, info *types.Info, pn resolver.Hand
 					Source:      "explicit",
 					Description: descriptionForStatus(code),
 				}
-				bodyType := resolveBodyType(call.Args[1], info)
-				if bodyType != nil {
-					resp.Body = typeRefDef(bodyType)
-				}
+				resp.Body = responseBodyDef(call.Args[1], info)
 				responses = append(responses, resp)
 			}
 
@@ -872,6 +869,99 @@ func resolveBodyType(expr ast.Expr, info *types.Info) types.Type {
 		return ptr.Elem()
 	}
 	return t
+}
+
+// responseBodyDef builds the TypeDef for a response body expression.
+//
+// A gin.H / echo.Map / map[string]any literal is not a useful schema on its own
+// — rendering it as a bare object throws away everything the endpoint actually
+// returns. When every key is a string literal, the literal is turned into a
+// synthetic struct instead, one field per key, each field carrying a reference
+// to the type of its value expression:
+//
+//	c.JSON(200, gin.H{"user": serializer.Response()})
+//	  → object { user: UserResponse }
+//
+// Keys that are not string literals make the shape genuinely unknowable, so
+// those fall back to the plain map type.
+func responseBodyDef(expr ast.Expr, info *types.Info) *model.TypeDef {
+	if lit, ok := expr.(*ast.CompositeLit); ok {
+		if def := stringKeyedMapDef(lit, info); def != nil {
+			return def
+		}
+	}
+	return typeRefDefDeep(resolveBodyType(expr, info))
+}
+
+// stringKeyedMapDef converts a string-keyed map literal into a synthetic
+// struct TypeDef, or returns nil when the literal is not one.
+func stringKeyedMapDef(lit *ast.CompositeLit, info *types.Info) *model.TypeDef {
+	t := info.TypeOf(lit)
+	if t == nil {
+		return nil
+	}
+	m, ok := t.Underlying().(*types.Map)
+	if !ok {
+		return nil
+	}
+	if basic, ok := m.Key().Underlying().(*types.Basic); !ok || basic.Kind() != types.String {
+		return nil
+	}
+	if len(lit.Elts) == 0 {
+		return nil
+	}
+
+	def := &model.TypeDef{Kind: model.KindStruct}
+	for _, elt := range lit.Elts {
+		kv, ok := elt.(*ast.KeyValueExpr)
+		if !ok {
+			return nil
+		}
+		key := extractStringLit(kv.Key)
+		if key == "" {
+			return nil // a computed key: the shape is not statically knowable
+		}
+		field := model.FieldDef{Name: key, JSONName: key}
+		if valDef := typeRefDefDeep(resolveBodyType(kv.Value, info)); valDef != nil {
+			field.Type = *valDef
+		}
+		def.Fields = append(def.Fields, field)
+	}
+	return def
+}
+
+// typeRefDefDeep builds a TypeDef reference that preserves the shape wrapping a
+// named type — a []UserResponse stays a slice of a reference rather than
+// collapsing to an opaque name the mapper cannot look up again.
+func typeRefDefDeep(t types.Type) *model.TypeDef {
+	if t == nil {
+		return nil
+	}
+	if ptr, ok := t.(*types.Pointer); ok {
+		def := typeRefDefDeep(ptr.Elem())
+		if def != nil {
+			def.IsPointer = true
+		}
+		return def
+	}
+	if named, ok := t.(*types.Named); ok {
+		if _, isStruct := named.Underlying().(*types.Struct); isStruct {
+			return typeRefDef(named)
+		}
+	}
+	switch u := t.Underlying().(type) {
+	case *types.Slice:
+		elem := typeRefDefDeep(u.Elem())
+		if elem == nil {
+			return nil
+		}
+		return &model.TypeDef{Kind: model.KindSlice, Elem: elem}
+	case *types.Basic:
+		return &model.TypeDef{Kind: model.KindPrimitive, Name: u.Name()}
+	case *types.Interface:
+		return &model.TypeDef{Kind: model.KindInterface, Name: "interface{}"}
+	}
+	return typeRefDef(t)
 }
 
 // typeRefDef creates a minimal TypeDef as a type reference. The full struct

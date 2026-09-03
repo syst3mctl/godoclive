@@ -259,12 +259,34 @@ func buildStructExample(td *model.TypeDef) map[string]interface{} {
 		if f.JSONName == "" || f.JSONName == "-" {
 			continue
 		}
-		obj[f.JSONName] = f.Example
+		obj[f.JSONName] = fieldExample(f)
 	}
 	if len(obj) == 0 {
 		return nil
 	}
 	return obj
+}
+
+// fieldExample falls back to the field's own shape when no example value was
+// generated for it — a nested struct is worth showing expanded rather than as
+// a bare null.
+func fieldExample(f model.FieldDef) interface{} {
+	if f.Example != nil {
+		return f.Example
+	}
+	switch f.Type.Kind {
+	case model.KindStruct:
+		if nested := buildStructExample(&f.Type); nested != nil {
+			return nested
+		}
+	case model.KindSlice:
+		if f.Type.Elem != nil && f.Type.Elem.Kind == model.KindStruct {
+			if nested := buildStructExample(f.Type.Elem); nested != nil {
+				return []interface{}{nested}
+			}
+		}
+	}
+	return f.Example
 }
 
 func convertTypeDefFields(td *model.TypeDef) []apiField {

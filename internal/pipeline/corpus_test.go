@@ -346,3 +346,111 @@ func TestCorpus_UnresolvableBindIsFlagged(t *testing.T) {
 	}
 	t.Fatal("route POST /{id} not found")
 }
+
+// TestCorpus_GinRealWorldResponseSchemas pins the response schemas that gin.H
+// literals have to resolve to. Every RealWorld response is an envelope —
+// gin.H{"user": serializer.Response()} — and reporting that as a bare object
+// says nothing at all about what the endpoint returns.
+func TestCorpus_GinRealWorldResponseSchemas(t *testing.T) {
+	endpoints := runCorpusPipeline(t, "gin-realworld")
+
+	cases := []struct {
+		route     string
+		status    int
+		field     string
+		fieldType string
+		slice     bool
+	}{
+		{"POST /api/users", 201, "user", "UserResponse", false},
+		{"GET /api/user", 200, "user", "UserResponse", false},
+		{"GET /api/profiles/{username}", 200, "profile", "ProfileResponse", false},
+		{"POST /api/articles", 201, "article", "ArticleResponse", false},
+		{"GET /api/articles", 200, "articles", "ArticleResponse", true},
+		{"GET /api/articles/{slug}/comments", 200, "comments", "CommentResponse", true},
+		{"POST /api/articles/{slug}/comments", 201, "comment", "CommentResponse", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.route, func(t *testing.T) {
+			ep := corpusEndpoint(t, endpoints, tc.route)
+			body := responseBody(t, ep, tc.status)
+			if body.Kind != model.KindStruct {
+				t.Fatalf("response %d body kind = %q, want struct", tc.status, body.Kind)
+			}
+			field, ok := corpusField(body, tc.field)
+			if !ok {
+				t.Fatalf("response %d has no field %q (fields: %v)", tc.status, tc.field, fieldNames(body))
+			}
+			ft := field.Type
+			if tc.slice {
+				if ft.Kind != model.KindSlice || ft.Elem == nil {
+					t.Fatalf("field %q kind = %q, want slice", tc.field, ft.Kind)
+				}
+				ft = *ft.Elem
+			}
+			if ft.Name != tc.fieldType {
+				t.Errorf("field %q type = %q, want %q", tc.field, ft.Name, tc.fieldType)
+			}
+			if len(ft.Fields) == 0 {
+				t.Errorf("field %q resolved to %q with no fields — the schema was not expanded", tc.field, ft.Name)
+			}
+		})
+	}
+}
+
+// TestCorpus_GinRealWorldScalarEnvelope covers the other envelope shape: a
+// literal value rather than a serializer call.
+func TestCorpus_GinRealWorldScalarEnvelope(t *testing.T) {
+	endpoints := runCorpusPipeline(t, "gin-realworld")
+
+	body := responseBody(t, corpusEndpoint(t, endpoints, "GET /api/ping/"), 200)
+	field, ok := corpusField(body, "message")
+	if !ok {
+		t.Fatalf("no field %q (fields: %v)", "message", fieldNames(body))
+	}
+	if field.Type.Kind != model.KindPrimitive || field.Type.Name != "string" {
+		t.Errorf("field message = %s/%s, want primitive/string", field.Type.Kind, field.Type.Name)
+	}
+}
+
+func corpusEndpoint(t *testing.T, endpoints []model.EndpointDef, route string) model.EndpointDef {
+	t.Helper()
+	for _, ep := range endpoints {
+		if routeKey(ep) == route {
+			return ep
+		}
+	}
+	t.Fatalf("route %s not found", route)
+	return model.EndpointDef{}
+}
+
+func responseBody(t *testing.T, ep model.EndpointDef, status int) *model.TypeDef {
+	t.Helper()
+	for _, r := range ep.Responses {
+		if r.StatusCode == status {
+			if r.Body == nil {
+				t.Fatalf("%s: response %d has no body", routeKey(ep), status)
+			}
+			return r.Body
+		}
+	}
+	t.Fatalf("%s: no response with status %d", routeKey(ep), status)
+	return nil
+}
+
+func corpusField(td *model.TypeDef, name string) (model.FieldDef, bool) {
+	for _, f := range td.Fields {
+		if f.JSONName == name {
+			return f, true
+		}
+	}
+	return model.FieldDef{}, false
+}
+
+func fieldNames(td *model.TypeDef) []string {
+	names := make([]string, 0, len(td.Fields))
+	for _, f := range td.Fields {
+		names = append(names, f.JSONName)
+	}
+	return names
+}

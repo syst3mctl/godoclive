@@ -171,19 +171,39 @@ func convertParam(p model.ParamDef) Parameter {
 
 // convertRequestBody converts request info to an OpenAPI RequestBody.
 func (c *converter) convertRequestBody(req model.RequestDef) *RequestBody {
-	contentType := req.ContentType
-	if contentType == "" {
-		contentType = "application/json"
-	}
-
 	schema := c.typeDefToSchema(req.Body)
+
+	content := make(map[string]*MediaType)
+	for _, ct := range mediaTypes(req.ContentType) {
+		content[ct] = &MediaType{Schema: schema}
+	}
 
 	return &RequestBody{
 		Required: true,
-		Content: map[string]*MediaType{
-			contentType: {Schema: schema},
-		},
+		Content:  content,
 	}
+}
+
+// mediaTypes splits an analyzed content type into valid OpenAPI media type
+// keys. A binder that accepts more than one encoding — gin's binding.Default
+// chooses by the request's own Content-Type — is recorded as "a | b", which is
+// not a media type; OpenAPI expresses the same thing as one content entry per
+// encoding.
+func mediaTypes(contentType string) []string {
+	if contentType == "" {
+		return []string{"application/json"}
+	}
+	parts := strings.Split(contentType, "|")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	if len(out) == 0 {
+		return []string{"application/json"}
+	}
+	return out
 }
 
 // convertResponse converts a ResponseDef to an OpenAPI Response.
@@ -193,13 +213,10 @@ func (c *converter) convertResponse(r model.ResponseDef) *Response {
 	}
 
 	if r.Body != nil {
-		ct := r.ContentType
-		if ct == "" {
-			ct = "application/json"
-		}
 		schema := c.typeDefToSchema(r.Body)
-		resp.Content = map[string]*MediaType{
-			ct: {Schema: schema},
+		resp.Content = make(map[string]*MediaType)
+		for _, ct := range mediaTypes(r.ContentType) {
+			resp.Content[ct] = &MediaType{Schema: schema}
 		}
 	}
 
@@ -241,8 +258,21 @@ func (c *converter) typeDefToSchema(td *model.TypeDef) *Schema {
 // structToSchema handles struct types — named structs are registered in
 // components/schemas and returned as $ref. Anonymous structs are inlined.
 func (c *converter) structToSchema(td *model.TypeDef) *Schema {
-	if td.Name == "" || len(td.Fields) == 0 {
+	if len(td.Fields) == 0 {
 		return &Schema{Type: "object"}
+	}
+
+	// An anonymous struct — the schema synthesized for a gin.H-style response
+	// envelope — has no name to register under, so it is inlined in place.
+	// Emitting a bare object here would throw away the very fields that make
+	// the envelope worth documenting.
+	if td.Name == "" {
+		schema := &Schema{
+			Type:       "object",
+			Properties: make(map[string]*Schema),
+		}
+		c.populateStructFields(schema, td)
+		return schema
 	}
 
 	name := c.sanitizeSchemaName(td.Name, td.Package)
