@@ -22,6 +22,7 @@ const (
 	corpusWantEndpoints    = 27
 	corpusWantRequiredAuth = 16
 	corpusWantOptionalAuth = 7
+	corpusWantBodies       = 10
 )
 
 // corpusWantRoutes is the full route table, method and path.
@@ -86,6 +87,22 @@ var corpusWantOptionalRoutes = []string{
 	"GET /api/profiles/{username}",
 	"GET /api/tags",
 	"GET /api/tags/",
+}
+
+// corpusWantBodyTypes maps each body-carrying operation to the validator type
+// the binding chain has to arrive at. None of these is named at the bind
+// itself: the shared binder takes interface{}, and the validator passes itself.
+var corpusWantBodyTypes = map[string]string{
+	"POST /api/users":                    "UserModelValidator",
+	"POST /api/users/":                   "UserModelValidator",
+	"POST /api/users/login":              "LoginValidator",
+	"PUT /api/user":                      "UserModelValidator",
+	"PUT /api/user/":                     "UserModelValidator",
+	"POST /api/articles":                 "ArticleModelValidator",
+	"POST /api/articles/":                "ArticleModelValidator",
+	"PUT /api/articles/{slug}":           "ArticleModelValidator",
+	"PUT /api/articles/{slug}/":          "ArticleModelValidator",
+	"POST /api/articles/{slug}/comments": "CommentModelValidator",
 }
 
 // runCorpusPipeline analyzes one testdata module.
@@ -277,4 +294,55 @@ func TestCorpus_UnreadableMiddlewareIsFlagged(t *testing.T) {
 		return
 	}
 	t.Fatal("route GET /api/admin/stats not found")
+}
+
+// TestCorpus_GinRealWorldRequestBodies is the request-body gate. Every one of
+// these binds through validator.Bind(c) → common.Bind(c, self) →
+// c.ShouldBindWith(obj, b), so the schema is only reachable by translating the
+// destination outward one call at a time until it lands on the receiver the
+// handler wrote.
+func TestCorpus_GinRealWorldRequestBodies(t *testing.T) {
+	endpoints := runCorpusPipeline(t, "gin-realworld")
+
+	bodies := 0
+	for _, ep := range endpoints {
+		key := routeKey(ep)
+		want, expected := corpusWantBodyTypes[key]
+		if ep.Request.Body != nil {
+			bodies++
+		}
+		switch {
+		case expected && ep.Request.Body == nil:
+			t.Errorf("%s: no request body resolved, want %s", key, want)
+		case expected && ep.Request.Body.Name != want:
+			t.Errorf("%s: request body = %q, want %q", key, ep.Request.Body.Name, want)
+		case !expected && ep.Request.Body != nil:
+			t.Errorf("%s: unexpected request body %q", key, ep.Request.Body.Name)
+		}
+	}
+
+	if bodies != corpusWantBodies {
+		t.Errorf("request bodies = %d, want %d", bodies, corpusWantBodies)
+	}
+}
+
+// TestCorpus_UnresolvableBindIsFlagged: a wrapper binding into an interface
+// value documents nothing, and the analyzer says so rather than reporting the
+// endpoint as having no body at all.
+func TestCorpus_UnresolvableBindIsFlagged(t *testing.T) {
+	endpoints := runCorpusPipeline(t, "gin-unresolved")
+
+	for _, ep := range endpoints {
+		if routeKey(ep) != "POST /{id}" {
+			continue
+		}
+		if ep.Request.Body != nil {
+			t.Errorf("expected no body schema, got %q", ep.Request.Body.Name)
+		}
+		if !hasPrefixIn(ep.Unresolved, "request body") {
+			t.Errorf("expected a request-body caveat, got %v", ep.Unresolved)
+		}
+		return
+	}
+	t.Fatal("route POST /{id} not found")
 }
