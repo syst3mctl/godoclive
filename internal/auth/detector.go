@@ -436,12 +436,6 @@ func findVarInit(ident *ast.Ident, info *types.Info, pkgs []*packages.Package) a
 	return init
 }
 
-// findFuncDeclByIdent finds the FuncDecl for an identifier.
-func findFuncDeclByIdent(ident *ast.Ident, info *types.Info, pkgs []*packages.Package) *ast.FuncDecl {
-	fd, _ := findFuncDeclAndInfoByIdent(ident, info, pkgs)
-	return fd
-}
-
 // findFuncDeclAndInfoByIdent resolves an identifier to its declaration and to
 // the TypesInfo of the package that declares it. Scanning a callee's body with
 // the caller's TypesInfo yields nothing once the two are in different packages,
@@ -457,12 +451,6 @@ func findFuncDeclAndInfoByIdent(ident *ast.Ident, info *types.Info, pkgs []*pack
 	return findFuncDeclAndInfoByObj(obj, pkgs)
 }
 
-// findFuncDeclBySelector finds the FuncDecl for a selector expression.
-func findFuncDeclBySelector(sel *ast.SelectorExpr, info *types.Info, pkgs []*packages.Package) *ast.FuncDecl {
-	fd, _ := findFuncDeclAndInfoBySelector(sel, info, pkgs)
-	return fd
-}
-
 // findFuncDeclAndInfoBySelector resolves a selector to its declaration and the
 // TypesInfo of the declaring package.
 func findFuncDeclAndInfoBySelector(sel *ast.SelectorExpr, info *types.Info, pkgs []*packages.Package) (*ast.FuncDecl, *types.Info) {
@@ -475,12 +463,6 @@ func findFuncDeclAndInfoBySelector(sel *ast.SelectorExpr, info *types.Info, pkgs
 		obj = selection.Obj()
 	}
 	return findFuncDeclAndInfoByObj(obj, pkgs)
-}
-
-// findFuncDeclByObj finds the FuncDecl for a types.Object across all packages.
-func findFuncDeclByObj(obj types.Object, pkgs []*packages.Package) *ast.FuncDecl {
-	fd, _ := findFuncDeclAndInfoByObj(obj, pkgs)
-	return fd
 }
 
 // findFuncDeclAndInfoByObj finds the FuncDecl for a types.Object across all
