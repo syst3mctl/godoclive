@@ -400,14 +400,7 @@ func findVarInit(ident *ast.Ident, info *types.Info, pkgs []*packages.Package) a
 		return nil
 	}
 
-	var targetPkg *packages.Package
-	packages.Visit(pkgs, func(pkg *packages.Package) bool {
-		if pkg.Types == obj.Pkg() {
-			targetPkg = pkg
-			return false
-		}
-		return true
-	}, nil)
+	targetPkg := packageWithTypes(pkgs, obj.Pkg())
 	if targetPkg == nil {
 		return nil
 	}
@@ -495,15 +488,7 @@ func findFuncDeclAndInfoByObj(obj types.Object, pkgs []*packages.Package) (*ast.
 		return nil, nil
 	}
 
-	var targetPkg *packages.Package
-	packages.Visit(pkgs, func(pkg *packages.Package) bool {
-		if pkg.Types == fnPkg {
-			targetPkg = pkg
-			return false
-		}
-		return true
-	}, nil)
-
+	targetPkg := packageWithTypes(pkgs, fnPkg)
 	if targetPkg == nil {
 		return nil, nil
 	}
@@ -728,4 +713,17 @@ func helperBodyForCall(call *ast.CallExpr, info *types.Info, pkgs []*packages.Pa
 		declInfo = info
 	}
 	return decl.Body, declInfo
+}
+
+// packageWithTypes finds the analyzed package that was type-checked into tp.
+// See the note on the resolver's copy: packages.Visit allocates and sorts a
+// key slice per package on every call, and only the analyzed packages carry
+// the syntax a declaration lookup needs.
+func packageWithTypes(pkgs []*packages.Package, tp *types.Package) *packages.Package {
+	for _, pkg := range pkgs {
+		if pkg.Types == tp {
+			return pkg
+		}
+	}
+	return nil
 }

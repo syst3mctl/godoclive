@@ -131,16 +131,7 @@ func findFuncDecl(obj types.Object, pkgs []*packages.Package) (*ast.FuncDecl, *a
 		return nil, nil, fmt.Errorf("function %q has no package", fn.Name())
 	}
 
-	// Search through all loaded packages (including dependencies) for the
-	// matching package and then find the FuncDecl by position.
-	var targetPkg *packages.Package
-	packages.Visit(pkgs, func(pkg *packages.Package) bool {
-		if pkg.Types == fnPkg {
-			targetPkg = pkg
-			return false
-		}
-		return true
-	}, nil)
+	targetPkg := packageWithTypes(pkgs, fnPkg)
 
 	if targetPkg == nil {
 		return nil, nil, fmt.Errorf("package %q not found in loaded packages", fnPkg.Path())
@@ -194,14 +185,7 @@ func findFuncDeclByPos(fn *types.Func, pkgs []*packages.Package) (*ast.FuncDecl,
 		return nil, nil, fmt.Errorf("function %q has no package", fn.Name())
 	}
 
-	var targetPkg *packages.Package
-	packages.Visit(pkgs, func(pkg *packages.Package) bool {
-		if pkg.Types == fnPkg {
-			targetPkg = pkg
-			return false
-		}
-		return true
-	}, nil)
+	targetPkg := packageWithTypes(pkgs, fnPkg)
 
 	if targetPkg == nil {
 		return nil, nil, fmt.Errorf("package %q not found in loaded packages", fnPkg.Path())
@@ -221,4 +205,21 @@ func findFuncDeclByPos(fn *types.Func, pkgs []*packages.Package) (*ast.FuncDecl,
 	}
 
 	return nil, nil, fmt.Errorf("FuncDecl for ServeHTTP not found in AST (pos=%v)", fnPos)
+}
+
+// packageWithTypes finds the analyzed package that was type-checked into tp.
+//
+// It scans the analyzed packages directly rather than calling packages.Visit
+// over the whole graph. Visit allocates and sorts a key slice for every
+// package it walks, on every call — at one call per route that was the single
+// largest source of allocation in the analyzer — and the walk cannot succeed
+// anyway: resolving a declaration needs syntax, and only the analyzed packages
+// are parsed. Dependencies are type-checked from export data and have none.
+func packageWithTypes(pkgs []*packages.Package, tp *types.Package) *packages.Package {
+	for _, pkg := range pkgs {
+		if pkg.Types == tp {
+			return pkg
+		}
+	}
+	return nil
 }

@@ -462,15 +462,10 @@ func helperFuncInfo(fn *types.Func, pkgs []*packages.Package) *types.Info {
 	if fnPkg == nil {
 		return nil
 	}
-	var info *types.Info
-	packages.Visit(pkgs, func(pkg *packages.Package) bool {
-		if pkg.Types == fnPkg {
-			info = pkg.TypesInfo
-			return false
-		}
-		return true
-	}, nil)
-	return info
+	if pkg := packageWithTypes(pkgs, fnPkg); pkg != nil {
+		return pkg.TypesInfo
+	}
+	return nil
 }
 
 // findHelperFuncDecl searches all packages for the FuncDecl of a types.Func.
@@ -480,15 +475,7 @@ func findHelperFuncDecl(fn *types.Func, pkgs []*packages.Package) *ast.FuncDecl 
 		return nil
 	}
 
-	var targetPkg *packages.Package
-	packages.Visit(pkgs, func(pkg *packages.Package) bool {
-		if pkg.Types == fnPkg {
-			targetPkg = pkg
-			return false
-		}
-		return true
-	}, nil)
-
+	targetPkg := packageWithTypes(pkgs, fnPkg)
 	if targetPkg == nil {
 		return nil
 	}
@@ -506,5 +493,18 @@ func findHelperFuncDecl(fn *types.Func, pkgs []*packages.Package) *ast.FuncDecl 
 		}
 	}
 
+	return nil
+}
+
+// packageWithTypes finds the analyzed package that was type-checked into tp.
+// See the note on the resolver's copy: packages.Visit allocates and sorts a
+// key slice per package on every call, and only the analyzed packages carry
+// the syntax a helper body lookup needs.
+func packageWithTypes(pkgs []*packages.Package, tp *types.Package) *packages.Package {
+	for _, pkg := range pkgs {
+		if pkg.Types == tp {
+			return pkg
+		}
+	}
 	return nil
 }
