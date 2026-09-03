@@ -290,14 +290,31 @@ func isBoolType(t types.Type) bool {
 // declared in one of the analyzed packages, as opposed to a framework or
 // third-party middleware whose internals are out of scope.
 func isLocalMiddleware(expr ast.Expr, info *types.Info, pkgs []*packages.Package) bool {
+	return declaredInAnalyzedPackages(expr, info, pkgs)
+}
+
+// declaredInAnalyzedPackages reports whether an expression resolves to
+// something declared in the packages under analysis.
+//
+// It is what keeps the credential scan inside the program being documented.
+// Descending into a dependency finds evidence that says nothing about the
+// endpoint: net/http's own (*Request).BasicAuth reads the Authorization
+// header, so following a call to it reports bearer for a route that uses HTTP
+// Basic. Only the application's own helpers are followed.
+func declaredInAnalyzedPackages(expr ast.Expr, info *types.Info, pkgs []*packages.Package) bool {
 	var obj types.Object
 	switch e := expr.(type) {
 	case *ast.Ident:
 		obj = info.Uses[e]
 	case *ast.SelectorExpr:
 		obj = info.Uses[e.Sel]
+		if obj == nil {
+			if sel, ok := info.Selections[e]; ok {
+				obj = sel.Obj()
+			}
+		}
 	case *ast.CallExpr:
-		return isLocalMiddleware(e.Fun, info, pkgs)
+		return declaredInAnalyzedPackages(e.Fun, info, pkgs)
 	default:
 		return false
 	}
@@ -691,6 +708,11 @@ func checkAuthPackageImports(body *ast.BlockStmt, info *types.Info, pkgs []*pack
 // helperBodyForCall resolves a plain function call inside a middleware body to
 // the callee's body, when that callee is declared in a package we loaded.
 func helperBodyForCall(call *ast.CallExpr, info *types.Info, pkgs []*packages.Package) (*ast.BlockStmt, *types.Info) {
+	// Only the application's own helpers. See declaredInAnalyzedPackages.
+	if !declaredInAnalyzedPackages(call.Fun, info, pkgs) {
+		return nil, nil
+	}
+
 	var decl *ast.FuncDecl
 	var declInfo *types.Info
 	switch fn := call.Fun.(type) {

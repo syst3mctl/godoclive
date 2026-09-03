@@ -13,6 +13,16 @@ import (
 // a module outside the current working directory. If dir is empty, the current
 // working directory is used.
 func LoadPackages(dir, pattern string) ([]*packages.Package, error) {
+	// NeedDeps is deliberately absent. With it, go/packages parses and
+	// type-checks every transitive dependency from source — for a service on
+	// gin and gorm that is ~280 packages, ~900MB and most of the wall clock,
+	// to produce syntax trees this analyzer never reads. Without it the four
+	// packages of the application itself are parsed, and dependencies are
+	// type-checked from export data, which still yields complete types.Type
+	// information for anything the application's own code refers to.
+	//
+	// NeedImports is kept: router detection reads each analyzed package's
+	// import set, and the type index walks the types.Package graph.
 	cfg := &packages.Config{
 		Dir: dir,
 		Mode: packages.NeedName |
@@ -20,7 +30,6 @@ func LoadPackages(dir, pattern string) ([]*packages.Package, error) {
 			packages.NeedSyntax |
 			packages.NeedTypes |
 			packages.NeedTypesInfo |
-			packages.NeedDeps |
 			packages.NeedImports,
 	}
 

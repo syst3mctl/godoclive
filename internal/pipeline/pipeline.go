@@ -91,7 +91,7 @@ func RunPipeline(dir, pattern string, cfg *config.Config) ([]model.EndpointDef, 
 }
 
 // processRoute converts a single RawRoute into a fully-resolved EndpointDef.
-func processRoute(route extractor.RawRoute, pkgs []*packages.Package, typeIdx map[string]map[string]types.Type) (model.EndpointDef, error) {
+func processRoute(route extractor.RawRoute, pkgs []*packages.Package, typeIdx typeIndex) (model.EndpointDef, error) {
 	// Find the TypesInfo from the package that contains this route's file.
 	info := findInfoForRoute(route, pkgs)
 	if info == nil {
@@ -270,7 +270,7 @@ func findPackageForRoute(route extractor.RawRoute, pkgs []*packages.Package) *pa
 // composed shapes — a slice of a reference, or the synthetic struct standing in
 // for a gin.H literal whose values are themselves references — so the mapping
 // walks into those and resolves each named type it finds.
-func resolveAndMapType(td *model.TypeDef, info *types.Info, pkg *packages.Package, typeIdx map[string]map[string]types.Type) *model.TypeDef {
+func resolveAndMapType(td *model.TypeDef, info *types.Info, pkg *packages.Package, typeIdx typeIndex) *model.TypeDef {
 	if td == nil || pkg == nil {
 		return nil
 	}
@@ -301,7 +301,7 @@ func resolveAndMapType(td *model.TypeDef, info *types.Info, pkg *packages.Packag
 		return td
 	}
 
-	t := lookupType(td.Name, td.Package, typeIdx)
+	t := typeIdx.lookup(td.Name, td.Package)
 	if t == nil {
 		return nil
 	}
@@ -311,46 +311,76 @@ func resolveAndMapType(td *model.TypeDef, info *types.Info, pkg *packages.Packag
 	return &mapped
 }
 
-// buildTypeIndex builds a two-level map (pkgPath → typeName → types.Type) by
-// visiting every package in the graph exactly once. Callers can then resolve
-// any named type in O(1) rather than re-traversing the full package graph.
-func buildTypeIndex(pkgs []*packages.Package) map[string]map[string]types.Type {
-	idx := make(map[string]map[string]types.Type)
+// typeIndex resolves a named type from the type-checked package graph.
+//
+// It holds package pointers rather than a pre-expanded name→type map: a scope
+// lookup is already O(1), so enumerating every name of every package up front
+// only spends time and memory materializing names nothing asks for. A service
+// on gin and gorm reaches a few hundred packages, most of them irrelevant.
+//
+// The graph is walked through types.Package.Imports rather than
+// packages.Package.Imports, which is what lets dependency types resolve
+// without their source being parsed: export data gives the type checker
+// complete scopes for everything the analyzed code refers to.
+type typeIndex struct {
+	byPath map[string]*types.Package
+}
+
+// buildTypeIndex collects every package reachable from the analyzed packages.
+func buildTypeIndex(pkgs []*packages.Package) typeIndex {
+	idx := typeIndex{byPath: make(map[string]*types.Package)}
 	packages.Visit(pkgs, func(p *packages.Package) bool {
-		if p.Types == nil {
-			return true
-		}
-		path := p.Types.Path()
-		if _, exists := idx[path]; exists {
-			return true // already indexed (diamond dependency)
-		}
-		scope := p.Types.Scope()
-		names := scope.Names()
-		m := make(map[string]types.Type, len(names))
-		for _, name := range names {
-			m[name] = scope.Lookup(name).Type()
-		}
-		idx[path] = m
+		idx.add(p.Types)
 		return true
 	}, nil)
 	return idx
 }
 
-// lookupType finds a types.Type by name and package path using the pre-built index.
-func lookupType(name, pkgPath string, idx map[string]map[string]types.Type) types.Type {
-	if pkgPath != "" {
-		if m, ok := idx[pkgPath]; ok {
-			return m[name] // may be nil if name not in that package
-		}
-		// pkgPath not found — fall through to name-only scan.
+// add records tp and everything it imports, transitively.
+func (idx typeIndex) add(tp *types.Package) {
+	if tp == nil {
+		return
 	}
-	// Scan all packages when no pkgPath is given (or pkgPath wasn't indexed).
-	for _, m := range idx {
-		if t, ok := m[name]; ok {
+	if _, seen := idx.byPath[tp.Path()]; seen {
+		return // already recorded (diamond dependency)
+	}
+	idx.byPath[tp.Path()] = tp
+	for _, imp := range tp.Imports() {
+		idx.add(imp)
+	}
+}
+
+// lookup finds a types.Type by name and package path. A type reference carries
+// the defining package whenever one is known; the name-only scan is the
+// fallback for references that do not.
+func (idx typeIndex) lookup(name, pkgPath string) types.Type {
+	if name == "" {
+		return nil
+	}
+	if pkgPath != "" {
+		if tp, ok := idx.byPath[pkgPath]; ok {
+			return scopeType(tp, name)
+		}
+		// pkgPath not found — fall through to the name-only scan.
+	}
+	for _, tp := range idx.byPath {
+		if t := scopeType(tp, name); t != nil {
 			return t
 		}
 	}
 	return nil
+}
+
+// scopeType looks one name up in a package scope.
+func scopeType(tp *types.Package, name string) types.Type {
+	if tp == nil || tp.Scope() == nil {
+		return nil
+	}
+	obj := tp.Scope().Lookup(name)
+	if obj == nil {
+		return nil
+	}
+	return obj.Type()
 }
 
 // tagFromPath extracts the first meaningful path segment as a fallback tag.
