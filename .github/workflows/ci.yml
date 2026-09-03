@@ -10,8 +10,12 @@ jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        go-version: ["1.25"]
+        # 1.25 is the version go.mod requires; 1.27 is the current release.
+        # Loading packages depends on the toolchain's export data format, and a
+        # newer toolchain has broken it before, so both are exercised.
+        go-version: ["1.25", "1.27"]
 
     steps:
       - uses: actions/checkout@v4
