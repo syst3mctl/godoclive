@@ -1,6 +1,8 @@
-// Command gin-unresolved collects registration shapes whose contract cannot be
-// established statically. It exists so coverage reporting is tested against
-// work the analyzer must NOT claim to have completed.
+// Command gin-unresolved collects the registration shapes whose contract
+// cannot be established statically. It exists so the coverage report is tested
+// against work it must NOT claim to have completed: an unreachable registration
+// helper, an OpenAPI path collision, a binding wrapper that resolves to an
+// interface, and a middleware that is a value rather than a function.
 package main
 
 import (
@@ -21,7 +23,10 @@ func main() {
 	r := gin.Default()
 	v1 := r.Group("/api")
 
+	// Two paths that differ only in the name of their parameter: OpenAPI
+	// treats these as the same path.
 	v1.GET("/items/:id", GetItem)
+	v1.GET("/items/:itemID", GetItemAlias)
 
 	admin := v1.Group("/admin", registry.Auth)
 	admin.GET("/stats", Stats)
@@ -39,6 +44,11 @@ func OrphanRegister(router *gin.RouterGroup) {
 // GetItem returns one item.
 func GetItem(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"id": c.Param("id")})
+}
+
+// GetItemAlias returns one item under the alias parameter name.
+func GetItemAlias(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"id": c.Param("itemID")})
 }
 
 // Stats returns admin statistics.

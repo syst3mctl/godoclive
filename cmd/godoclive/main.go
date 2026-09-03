@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -305,7 +306,15 @@ type ValidateReport struct {
 	Total     int             `json:"total"`
 	Resolved  int             `json:"resolved"`
 	Partial   int             `json:"partial"`
+	Coverage  float64         `json:"coverage"`
+	Issues    []IssueCount    `json:"issues,omitempty"`
 	Endpoints []ValidateEntry `json:"endpoints"`
+}
+
+// IssueCount is the number of unresolved items sharing one category.
+type IssueCount struct {
+	Category string `json:"category"`
+	Count    int    `json:"count"`
 }
 
 // ValidateEntry represents one endpoint in the validate report.
@@ -330,20 +339,25 @@ func printCoverageReport(endpoints []model.EndpointDef, verbose bool) error {
 	fmt.Println()
 	fmt.Printf("Total endpoints:     %d\n", report.Total)
 	if report.Total > 0 {
-		pctResolved := float64(report.Resolved) / float64(report.Total) * 100
 		pctPartial := float64(report.Partial) / float64(report.Total) * 100
-		fmt.Printf("Fully resolved:      %d  (%.1f%%)\n", report.Resolved, pctResolved)
+		fmt.Printf("Fully resolved:      %d  (%.1f%%)\n", report.Resolved, report.Coverage)
 		fmt.Printf("Partially resolved:  %d  (%.1f%%)\n", report.Partial, pctPartial)
+	}
+
+	if len(report.Issues) > 0 {
+		fmt.Println()
+		fmt.Println("Issues by category:")
+		for _, issue := range report.Issues {
+			fmt.Printf("  %-28s %d\n", issue.Category, issue.Count)
+		}
 	}
 
 	if report.Partial > 0 || verbose {
 		fmt.Println()
 		fmt.Println("Unresolved items:")
 		for _, entry := range report.Endpoints {
-			if len(entry.Unresolved) > 0 {
-				for _, u := range entry.Unresolved {
-					fmt.Printf("  %-7s %-20s -> %s\n", entry.Method, entry.Path, u)
-				}
+			for _, u := range entry.Unresolved {
+				fmt.Printf("  %-7s %-28s -> %s\n", entry.Method, entry.Path, u)
 			}
 		}
 	}
@@ -355,6 +369,9 @@ func buildReport(endpoints []model.EndpointDef) ValidateReport {
 	report := ValidateReport{
 		Total: len(endpoints),
 	}
+	counts := make(map[string]int)
+	var order []string
+
 	for _, ep := range endpoints {
 		entry := ValidateEntry{
 			Method:     ep.Method,
@@ -368,8 +385,40 @@ func buildReport(endpoints []model.EndpointDef) ValidateReport {
 		} else {
 			report.Partial++
 		}
+		for _, u := range ep.Unresolved {
+			cat := issueCategory(u)
+			if counts[cat] == 0 {
+				order = append(order, cat)
+			}
+			counts[cat]++
+		}
 	}
+
+	if report.Total > 0 {
+		report.Coverage = float64(report.Resolved) / float64(report.Total) * 100
+	}
+
+	sort.Slice(order, func(i, j int) bool {
+		if counts[order[i]] != counts[order[j]] {
+			return counts[order[i]] > counts[order[j]]
+		}
+		return order[i] < order[j]
+	})
+	for _, cat := range order {
+		report.Issues = append(report.Issues, IssueCount{Category: cat, Count: counts[cat]})
+	}
+
 	return report
+}
+
+// issueCategory groups an unresolved item by the prefix its message leads with
+// ("openapi collision: …", "request body: …"), so a coverage report says what
+// kind of gap is dominating rather than listing every line.
+func issueCategory(note string) string {
+	if idx := strings.Index(note, ": "); idx > 0 && idx <= 32 {
+		return note[:idx]
+	}
+	return "other"
 }
 
 // runGenerate implements the generate command.
