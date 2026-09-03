@@ -270,7 +270,7 @@ func (w *echoWalker) addRoute(call *ast.CallExpr, prefix string, middlewares []a
 		Method:      method,
 		Path:        fullPath,
 		HandlerExpr: handler,
-		Middlewares: copyExprs(middlewares),
+		Middlewares: middlewareRefs(middlewares, w.info),
 		File:        w.file,
 		Line:        pos.Line,
 	})

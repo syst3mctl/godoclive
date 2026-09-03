@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/types"
 
+	"github.com/syst3mctl/godoclive/internal/extractor"
 	"github.com/syst3mctl/godoclive/internal/model"
 	"golang.org/x/tools/go/packages"
 )
@@ -20,12 +21,24 @@ var knownAuthPackages = map[string]model.AuthScheme{
 // DetectAuth examines middleware expressions to determine the authentication
 // scheme(s) required by an endpoint. It resolves each middleware to its
 // function body and scans for known auth patterns.
-func DetectAuth(middlewares []ast.Expr, info *types.Info, pkgs []*packages.Package) model.AuthDef {
+//
+// A route's chain can span packages — the group's middleware is registered
+// where the group is built, while inline middleware is written inside a
+// registration helper — so every entry carries the TypesInfo of the package it
+// was written in. fallback is used only for entries that have none.
+func DetectAuth(middlewares []extractor.MiddlewareRef, fallback *types.Info, pkgs []*packages.Package) model.AuthDef {
 	var schemes []model.AuthScheme
 	seen := make(map[model.AuthScheme]bool)
 
 	for _, mw := range middlewares {
-		detected := detectFromExpr(mw, info, pkgs)
+		info := mw.Info
+		if info == nil {
+			info = fallback
+		}
+		if info == nil {
+			continue
+		}
+		detected := detectFromExpr(mw.Expr, info, pkgs)
 		for _, s := range detected {
 			if !seen[s] {
 				seen[s] = true

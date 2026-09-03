@@ -290,7 +290,7 @@ func (w *fiberWalker) addRoute(call *ast.CallExpr, prefix string, middlewares []
 		Method:      method,
 		Path:        fullPath,
 		HandlerExpr: handler,
-		Middlewares: allMW,
+		Middlewares: middlewareRefs(allMW, w.info),
 		File:        w.file,
 		Line:        pos.Line,
 	})
