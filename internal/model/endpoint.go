@@ -19,8 +19,15 @@ type EndpointDef struct {
 }
 
 // AuthDef describes authentication requirements for this endpoint.
+//
+// Required and Optional are distinct states, and both differ from an endpoint
+// with no auth at all. A middleware that reads a token when one is present but
+// serves the request without it — gin's AuthMiddleware(false) idiom — makes an
+// endpoint Optional: documenting it as required would be wrong, and
+// documenting it as public would hide that credentials change the response.
 type AuthDef struct {
 	Required bool
+	Optional bool         // credentials are accepted and honored, but not demanded
 	Schemes  []AuthScheme // may have multiple (e.g. bearer OR apikey)
 	Source   string       // "middleware" | "inline" | "inferred"
 }

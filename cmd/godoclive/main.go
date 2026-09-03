@@ -258,14 +258,7 @@ func printSummaryTable(endpoints []model.EndpointDef, verbose bool) error {
 	_, _ = fmt.Fprintln(w, "------\t----\t-------\t----\t------")
 
 	for _, ep := range endpoints {
-		authStr := "-"
-		if ep.Auth.Required && len(ep.Auth.Schemes) > 0 {
-			schemes := make([]string, len(ep.Auth.Schemes))
-			for i, s := range ep.Auth.Schemes {
-				schemes[i] = string(s)
-			}
-			authStr = strings.Join(schemes, ",")
-		}
+		authStr := authLabel(ep.Auth)
 
 		status := "\u2713 complete"
 		if len(ep.Unresolved) > 0 {
@@ -283,6 +276,28 @@ func printSummaryTable(endpoints []model.EndpointDef, verbose bool) error {
 	}
 
 	return w.Flush()
+}
+
+// authLabel renders an endpoint's authentication requirement. Optional auth is
+// shown distinctly: "-" would claim the endpoint ignores credentials, and the
+// bare scheme would claim it demands them.
+func authLabel(a model.AuthDef) string {
+	if len(a.Schemes) == 0 {
+		return "-"
+	}
+	schemes := make([]string, len(a.Schemes))
+	for i, s := range a.Schemes {
+		schemes[i] = string(s)
+	}
+	label := strings.Join(schemes, ",")
+	switch {
+	case a.Required:
+		return label
+	case a.Optional:
+		return label + " (optional)"
+	default:
+		return "-"
+	}
 }
 
 // ValidateReport is the JSON structure for the validate command.

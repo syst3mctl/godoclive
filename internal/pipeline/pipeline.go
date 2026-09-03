@@ -180,8 +180,10 @@ func processRoute(route extractor.RawRoute, pkgs []*packages.Package, typeIdx ma
 		}
 	}
 
-	// 7. Detect auth from middleware chain.
-	authDef := auth.DetectAuth(route.Middlewares, info, pkgs)
+	// 7. Detect auth from middleware chain. Middleware that could not be read
+	// is reported rather than silently treated as "no auth".
+	authDef, authNotes := auth.DetectAuth(route.Middlewares, info, pkgs)
+	unresolved = append(unresolved, authNotes...)
 
 	// 8. Infer summary and tags.
 	summary := model.InferSummary(handlerName)

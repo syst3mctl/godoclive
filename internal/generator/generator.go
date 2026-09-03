@@ -82,6 +82,7 @@ type apiEndpoint struct {
 
 type apiAuth struct {
 	Required bool     `json:"required"`
+	Optional bool     `json:"optional"`
 	Schemes  []string `json:"schemes"`
 }
 
@@ -184,7 +185,7 @@ func convertAuth(a model.AuthDef) apiAuth {
 	for i, s := range a.Schemes {
 		schemes[i] = string(s)
 	}
-	return apiAuth{Required: a.Required, Schemes: schemes}
+	return apiAuth{Required: a.Required, Optional: a.Optional, Schemes: schemes}
 }
 
 func convertParams(req model.RequestDef) []apiParam {
