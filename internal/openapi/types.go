@@ -148,6 +148,7 @@ type Schema struct {
 	Deprecated           bool               `json:"deprecated,omitempty" yaml:"deprecated,omitempty"`
 	Example              interface{}        `json:"example,omitempty" yaml:"example,omitempty"`
 	Enum                 []interface{}      `json:"enum,omitempty" yaml:"enum,omitempty"`
+	OneOf                []*Schema          `json:"oneOf,omitempty" yaml:"oneOf,omitempty"`
 	Pattern              string             `json:"pattern,omitempty" yaml:"pattern,omitempty"`
 	Minimum              *float64           `json:"minimum,omitempty" yaml:"minimum,omitempty"`
 	Maximum              *float64           `json:"maximum,omitempty" yaml:"maximum,omitempty"`

@@ -1115,8 +1115,28 @@
   // Response tabs (one per status code)
   // ============================================================
   function buildResponseTabs(responses, epId) {
-    // Sort by status code
+    // Sort by status code, keeping the order alternatives were found in.
     var sorted = responses.slice().sort(function (a, b) { return a.status - b.status; });
+
+    // A handler can answer one status with more than one payload — a full
+    // record, or a trimmed one when the caller asks for a summary. Those are
+    // separate tabs, so the tab key is the position rather than the status,
+    // which would collide, and the label names the shape so the two are
+    // telling apart.
+    var statusCounts = {};
+    sorted.forEach(function (resp) {
+      statusCounts[resp.status] = (statusCounts[resp.status] || 0) + 1;
+    });
+
+    function tabKey(i) { return epId + '-resp-' + i; }
+
+    function tabLabel(resp) {
+      var label = resp.status + ' ' + statusText(resp.status);
+      if (statusCounts[resp.status] > 1 && resp.body && resp.body.typeName) {
+        label += ' \u00b7 ' + resp.body.typeName;
+      }
+      return label;
+    }
 
     var h = '<div class="tab-group" role="tablist" aria-label="Response status codes">';
     sorted.forEach(function (resp, i) {
@@ -1124,10 +1144,10 @@
       var tabClass = statusTabClass(resp.status);
       var selected = i === 0 ? 'true' : 'false';
       h += '<button class="tab-btn ' + tabClass + active + '" role="tab" aria-selected="' + selected + '" ';
-      h += 'data-tab="' + epId + '-resp-' + resp.status + '" ';
-      h += 'id="tab-' + epId + '-resp-' + resp.status + '" ';
-      h += 'aria-controls="panel-' + epId + '-resp-' + resp.status + '">';
-      h += resp.status + ' ' + statusText(resp.status);
+      h += 'data-tab="' + tabKey(i) + '" ';
+      h += 'id="tab-' + tabKey(i) + '" ';
+      h += 'aria-controls="panel-' + tabKey(i) + '">';
+      h += esc(tabLabel(resp));
       h += '</button>';
     });
     h += '</div>';
@@ -1135,8 +1155,8 @@
     // Tab panels
     sorted.forEach(function (resp, i) {
       var active = i === 0 ? ' active' : '';
-      h += '<div class="tab-panel' + active + '" id="panel-' + epId + '-resp-' + resp.status + '" ';
-      h += 'role="tabpanel" aria-labelledby="tab-' + epId + '-resp-' + resp.status + '">';
+      h += '<div class="tab-panel' + active + '" id="panel-' + tabKey(i) + '" ';
+      h += 'role="tabpanel" aria-labelledby="tab-' + tabKey(i) + '">';
 
       // Body-less responses
       var rbody = resp.body;
@@ -1144,8 +1164,8 @@
         h += '<div class="no-body-msg">No response body</div>';
       } else {
         // Inner Schema/Example tabs
-        var innerPrefix = epId + '-resp-' + resp.status;
-        h += '<div class="tab-group" role="tablist" aria-label="Response ' + resp.status + ' views">';
+        var innerPrefix = tabKey(i);
+        h += '<div class="tab-group" role="tablist" aria-label="Response ' + esc(tabLabel(resp)) + ' views">';
         h += '<button class="tab-btn active" role="tab" aria-selected="true" data-tab="' + innerPrefix + '-schema" id="tab-' + innerPrefix + '-schema" aria-controls="panel-' + innerPrefix + '-schema">Schema</button>';
         h += '<button class="tab-btn" role="tab" aria-selected="false" data-tab="' + innerPrefix + '-example" id="tab-' + innerPrefix + '-example" aria-controls="panel-' + innerPrefix + '-example">Example</button>';
         h += '</div>';

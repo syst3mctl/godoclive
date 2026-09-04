@@ -58,7 +58,7 @@ GoDoc Live has no drift problem — it reads the source of truth directly.
 | **Path Params** | Type inference from name heuristics (`{id}` → uuid, `{page}` → integer) and handler body analysis |
 | **Query Params** | Required/optional detection, default values from `DefaultQuery` |
 | **Request Body** | Struct extraction from `json.Decode` / `c.ShouldBindJSON` with full field metadata |
-| **Responses** | Status codes paired with response body types via branch-aware analysis |
+| **Responses** | Status codes paired with response body types via branch-aware analysis; a status answered with more than one shape keeps both, as a `oneOf` |
 | **File Uploads** | Multipart detection from `r.FormFile` / `c.FormFile` |
 | **Helper Tracing** | One-level tracing through `respond()`, `writeJSON()`, `sendError()` wrappers |
 | **Cookies** | `r.Cookie` / `c.Cookie` / `c.Cookies` → OpenAPI `in: cookie` parameters |

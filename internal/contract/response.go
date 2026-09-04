@@ -66,9 +66,8 @@ func ExtractResponses(body *ast.BlockStmt, info *types.Info, paramNames resolver
 // --- Gin response extraction (easy case) ---
 
 func extractGinResponses(body *ast.BlockStmt, info *types.Info, pn resolver.HandlerParamNames, pkgs []*packages.Package) ([]model.ResponseDef, []string) {
-	var responses []model.ResponseDef
+	set := newResponseSet()
 	var unresolved []string
-	seen := make(map[int]bool) // deduplicate by status code
 
 	ast.Inspect(body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
@@ -83,10 +82,7 @@ func extractGinResponses(body *ast.BlockStmt, info *types.Info, pn resolver.Hand
 				helperResps, helperUnresolved := traceGinHelper(call, info, pn, pkgs)
 				if helperResps != nil {
 					for _, r := range helperResps {
-						if !seen[r.StatusCode] {
-							seen[r.StatusCode] = true
-							responses = append(responses, r)
-						}
+						set.add(r)
 					}
 					unresolved = append(unresolved, helperUnresolved...)
 					return false
@@ -109,10 +105,6 @@ func extractGinResponses(body *ast.BlockStmt, info *types.Info, pn resolver.Hand
 					unresolved = append(unresolved, unresolvedStatusMsg(call, info))
 					return true
 				}
-				if seen[code] {
-					return true
-				}
-				seen[code] = true
 				resp := model.ResponseDef{
 					StatusCode:  code,
 					ContentType: "application/json",
@@ -120,7 +112,7 @@ func extractGinResponses(body *ast.BlockStmt, info *types.Info, pn resolver.Hand
 					Description: descriptionForStatus(code),
 				}
 				resp.Body = responseBodyDef(call.Args[1], info)
-				responses = append(responses, resp)
+				set.add(resp)
 			}
 
 		case "Status", "AbortWithStatus", "AbortWithError":
@@ -133,41 +125,34 @@ func extractGinResponses(body *ast.BlockStmt, info *types.Info, pn resolver.Hand
 					unresolved = append(unresolved, unresolvedStatusMsg(call, info))
 					return true
 				}
-				if !seen[code] {
-					seen[code] = true
-					responses = append(responses, model.ResponseDef{
-						StatusCode:  code,
-						ContentType: "",
-						Source:      "explicit",
-						Description: descriptionForStatus(code),
-					})
-				}
+				set.add(model.ResponseDef{
+					StatusCode:  code,
+					ContentType: "",
+					Source:      "explicit",
+					Description: descriptionForStatus(code),
+				})
 			}
 
 		case "File":
-			if !seen[200] {
-				seen[200] = true
-				responses = append(responses, model.ResponseDef{
-					StatusCode:  200,
-					ContentType: "application/octet-stream",
-					Source:      "explicit",
-					Description: "OK",
-				})
-			}
+			set.add(model.ResponseDef{
+				StatusCode:  200,
+				ContentType: "application/octet-stream",
+				Source:      "explicit",
+				Description: "OK",
+			})
 		}
 
 		return true
 	})
 
-	return responses, unresolved
+	return set.all(), unresolved
 }
 
 // --- Echo response extraction ---
 
 func extractEchoResponses(body *ast.BlockStmt, info *types.Info, pn resolver.HandlerParamNames, pkgs []*packages.Package) ([]model.ResponseDef, []string) {
-	var responses []model.ResponseDef
+	set := newResponseSet()
 	var unresolved []string
-	seen := make(map[int]bool)
 
 	ast.Inspect(body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
@@ -194,10 +179,6 @@ func extractEchoResponses(body *ast.BlockStmt, info *types.Info, pn resolver.Han
 					unresolved = append(unresolved, unresolvedStatusMsg(call, info))
 					return true
 				}
-				if seen[code] {
-					return true
-				}
-				seen[code] = true
 				resp := model.ResponseDef{
 					StatusCode:  code,
 					ContentType: "application/json",
@@ -208,7 +189,7 @@ func extractEchoResponses(body *ast.BlockStmt, info *types.Info, pn resolver.Han
 				if bodyType != nil {
 					resp.Body = typeRefDef(bodyType)
 				}
-				responses = append(responses, resp)
+				set.add(resp)
 			}
 
 		case "NoContent":
@@ -219,14 +200,11 @@ func extractEchoResponses(body *ast.BlockStmt, info *types.Info, pn resolver.Han
 					unresolved = append(unresolved, unresolvedStatusMsg(call, info))
 					return true
 				}
-				if !seen[code] {
-					seen[code] = true
-					responses = append(responses, model.ResponseDef{
-						StatusCode:  code,
-						Source:      "explicit",
-						Description: descriptionForStatus(code),
-					})
-				}
+				set.add(model.ResponseDef{
+					StatusCode:  code,
+					Source:      "explicit",
+					Description: descriptionForStatus(code),
+				})
 			}
 
 		case "String":
@@ -237,15 +215,12 @@ func extractEchoResponses(body *ast.BlockStmt, info *types.Info, pn resolver.Han
 					unresolved = append(unresolved, unresolvedStatusMsg(call, info))
 					return true
 				}
-				if !seen[code] {
-					seen[code] = true
-					responses = append(responses, model.ResponseDef{
-						StatusCode:  code,
-						ContentType: "text/plain",
-						Source:      "explicit",
-						Description: descriptionForStatus(code),
-					})
-				}
+				set.add(model.ResponseDef{
+					StatusCode:  code,
+					ContentType: "text/plain",
+					Source:      "explicit",
+					Description: descriptionForStatus(code),
+				})
 			}
 
 		case "HTML":
@@ -256,15 +231,12 @@ func extractEchoResponses(body *ast.BlockStmt, info *types.Info, pn resolver.Han
 					unresolved = append(unresolved, unresolvedStatusMsg(call, info))
 					return true
 				}
-				if !seen[code] {
-					seen[code] = true
-					responses = append(responses, model.ResponseDef{
-						StatusCode:  code,
-						ContentType: "text/html",
-						Source:      "explicit",
-						Description: descriptionForStatus(code),
-					})
-				}
+				set.add(model.ResponseDef{
+					StatusCode:  code,
+					ContentType: "text/html",
+					Source:      "explicit",
+					Description: descriptionForStatus(code),
+				})
 			}
 
 		case "JSONBlob":
@@ -275,22 +247,19 @@ func extractEchoResponses(body *ast.BlockStmt, info *types.Info, pn resolver.Han
 					unresolved = append(unresolved, unresolvedStatusMsg(call, info))
 					return true
 				}
-				if !seen[code] {
-					seen[code] = true
-					responses = append(responses, model.ResponseDef{
-						StatusCode:  code,
-						ContentType: "application/json",
-						Source:      "explicit",
-						Description: descriptionForStatus(code),
-					})
-				}
+				set.add(model.ResponseDef{
+					StatusCode:  code,
+					ContentType: "application/json",
+					Source:      "explicit",
+					Description: descriptionForStatus(code),
+				})
 			}
 		}
 
 		return true
 	})
 
-	return responses, unresolved
+	return set.all(), unresolved
 }
 
 // --- Fiber response extraction ---
@@ -322,9 +291,8 @@ func matchFiberStatusChain(call *ast.CallExpr, fiberCtx string) (statusCall *ast
 }
 
 func extractFiberResponses(body *ast.BlockStmt, info *types.Info, pn resolver.HandlerParamNames) ([]model.ResponseDef, []string) {
-	var responses []model.ResponseDef
+	set := newResponseSet()
 	var unresolved []string
-	seen := make(map[int]bool)
 
 	ast.Inspect(body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
@@ -339,11 +307,6 @@ func extractFiberResponses(body *ast.BlockStmt, info *types.Info, pn resolver.Ha
 				unresolved = append(unresolved, unresolvedStatusMsg(call, info))
 				return true
 			}
-			if seen[code] {
-				return true
-			}
-			seen[code] = true
-
 			switch method {
 			case "JSON":
 				resp := model.ResponseDef{
@@ -357,16 +320,16 @@ func extractFiberResponses(body *ast.BlockStmt, info *types.Info, pn resolver.Ha
 						resp.Body = typeRefDef(bodyType)
 					}
 				}
-				responses = append(responses, resp)
+				set.add(resp)
 			case "SendString":
-				responses = append(responses, model.ResponseDef{
+				set.add(model.ResponseDef{
 					StatusCode:  code,
 					ContentType: "text/plain",
 					Source:      "explicit",
 					Description: descriptionForStatus(code),
 				})
 			case "Send":
-				responses = append(responses, model.ResponseDef{
+				set.add(model.ResponseDef{
 					StatusCode:  code,
 					Source:      "explicit",
 					Description: descriptionForStatus(code),
@@ -388,21 +351,18 @@ func extractFiberResponses(body *ast.BlockStmt, info *types.Info, pn resolver.Ha
 		switch sel.Sel.Name {
 		case "JSON":
 			// c.JSON(body) — implicit 200
-			if !seen[200] {
-				seen[200] = true
-				resp := model.ResponseDef{
-					StatusCode:  200,
-					ContentType: "application/json",
-					Source:      "explicit",
-					Description: descriptionForStatus(200),
-				}
-				if len(call.Args) >= 1 {
-					if bodyType := resolveBodyType(call.Args[0], info); bodyType != nil {
-						resp.Body = typeRefDef(bodyType)
-					}
-				}
-				responses = append(responses, resp)
+			resp := model.ResponseDef{
+				StatusCode:  200,
+				ContentType: "application/json",
+				Source:      "explicit",
+				Description: descriptionForStatus(200),
 			}
+			if len(call.Args) >= 1 {
+				if bodyType := resolveBodyType(call.Args[0], info); bodyType != nil {
+					resp.Body = typeRefDef(bodyType)
+				}
+			}
+			set.add(resp)
 
 		case "SendStatus":
 			// c.SendStatus(code) — status only, no body
@@ -412,33 +372,27 @@ func extractFiberResponses(body *ast.BlockStmt, info *types.Info, pn resolver.Ha
 					unresolved = append(unresolved, unresolvedStatusMsg(call, info))
 					return true
 				}
-				if !seen[code] {
-					seen[code] = true
-					responses = append(responses, model.ResponseDef{
-						StatusCode:  code,
-						Source:      "explicit",
-						Description: descriptionForStatus(code),
-					})
-				}
+				set.add(model.ResponseDef{
+					StatusCode:  code,
+					Source:      "explicit",
+					Description: descriptionForStatus(code),
+				})
 			}
 
 		case "SendString":
 			// c.SendString(str) — implicit 200, text/plain
-			if !seen[200] {
-				seen[200] = true
-				responses = append(responses, model.ResponseDef{
-					StatusCode:  200,
-					ContentType: "text/plain",
-					Source:      "explicit",
-					Description: descriptionForStatus(200),
-				})
-			}
+			set.add(model.ResponseDef{
+				StatusCode:  200,
+				ContentType: "text/plain",
+				Source:      "explicit",
+				Description: descriptionForStatus(200),
+			})
 		}
 
 		return true
 	})
 
-	return responses, unresolved
+	return set.all(), unresolved
 }
 
 // --- net/http response extraction (hard case) ---
@@ -536,8 +490,7 @@ func pairEvents(events []responseEvent, returns []token.Pos, info *types.Info) [
 	// any events after the last real return statement are captured in a final branch.
 	returns = append(returns, token.Pos(^uint(0)>>1))
 
-	var responses []model.ResponseDef
-	seen := make(map[int]bool)
+	set := newResponseSet()
 
 	prevBoundary := token.Pos(0)
 
@@ -554,16 +507,15 @@ func pairEvents(events []responseEvent, returns []token.Pos, info *types.Info) [
 			resp := pairBranchEvents(branchEvents)
 			// Never emit a response with a non-positive status — an unresolved
 			// status (-1) is not a valid HTTP status and must not reach the spec.
-			if resp != nil && resp.StatusCode > 0 && !seen[resp.StatusCode] {
-				seen[resp.StatusCode] = true
-				responses = append(responses, *resp)
+			if resp != nil && resp.StatusCode > 0 {
+				set.add(*resp)
 			}
 		}
 
 		prevBoundary = ret
 	}
 
-	return responses
+	return set.all()
 }
 
 // pairBranchEvents takes events within a single return-delimited branch and

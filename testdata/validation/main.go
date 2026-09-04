@@ -96,9 +96,30 @@ func ListArticles(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode([]Article{})
 }
 
+// ArticleSummary is the trimmed form of an article.
+type ArticleSummary struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
+
+// GetArticle returns one article.
+//
+// The format query parameter chooses between the full article and a trimmed
+// summary; both are returned with 200.
+func GetArticle(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("format") == "summary" {
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(ArticleSummary{})
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(Article{})
+}
+
 func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /articles", CreateArticle)
 	mux.HandleFunc("GET /articles", ListArticles)
+	mux.HandleFunc("GET /articles/{id}", GetArticle)
 	http.ListenAndServe(":8080", mux)
 }

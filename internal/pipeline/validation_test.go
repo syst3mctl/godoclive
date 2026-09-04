@@ -221,3 +221,58 @@ func TestPipeline_CookiesAreExtracted(t *testing.T) {
 		}
 	}
 }
+
+// A handler that answers one status with more than one payload documents both.
+// Keeping only whichever branch the walk reached first told a client to expect
+// a shape it might never receive, with nothing to say the other existed.
+func TestPipeline_MultipleShapesUnderOneStatus(t *testing.T) {
+	eps, err := pipeline.RunPipeline(testdataDir("validation"), "./...", nil)
+	if err != nil {
+		t.Fatalf("RunPipeline: %v", err)
+	}
+	ep := findEndpoint(eps, "GET", "/articles/{id}")
+	if ep == nil {
+		t.Fatal("GET /articles/{id} not found")
+	}
+
+	var shapes []string
+	for _, r := range ep.Responses {
+		if r.StatusCode != 200 || r.Body == nil {
+			continue
+		}
+		shapes = append(shapes, r.Body.Name)
+	}
+	if len(shapes) != 2 {
+		t.Fatalf("200 shapes = %v, want both ArticleSummary and Article", shapes)
+	}
+	found := map[string]bool{shapes[0]: true, shapes[1]: true}
+	for _, want := range []string{"ArticleSummary", "Article"} {
+		if !found[want] {
+			t.Errorf("200 shapes = %v, missing %s", shapes, want)
+		}
+	}
+}
+
+// A status written from several branches with the same payload is one response,
+// not four.
+func TestPipeline_RepeatedShapeCollapses(t *testing.T) {
+	eps, err := pipeline.RunPipeline(testdataDir("validation"), "./...", nil)
+	if err != nil {
+		t.Fatalf("RunPipeline: %v", err)
+	}
+	for _, ep := range eps {
+		counts := make(map[string]int)
+		for _, r := range ep.Responses {
+			key := r.Description
+			if r.Body != nil {
+				key = r.Body.Name
+			}
+			counts[string(rune(r.StatusCode))+"|"+key]++
+		}
+		for key, n := range counts {
+			if n > 1 {
+				t.Errorf("%s %s: %q recorded %d times", ep.Method, ep.Path, key, n)
+			}
+		}
+	}
+}
