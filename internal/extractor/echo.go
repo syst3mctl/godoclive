@@ -93,11 +93,6 @@ func echoNamed(t types.Type) string {
 	return obj.Name()
 }
 
-// isEchoType checks if a types.Type is *echo.Echo or echo.Echo.
-func isEchoType(t types.Type) bool {
-	return echoNamed(t) == "Echo"
-}
-
 // isEchoRouterType reports whether a type can have routes registered on it:
 // the Echo instance itself, or a group carved out of it.
 func isEchoRouterType(t types.Type) bool {

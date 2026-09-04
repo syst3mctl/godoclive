@@ -104,11 +104,6 @@ func fiberNamed(t types.Type) string {
 	return obj.Name()
 }
 
-// isFiberAppType checks if a types.Type is *fiber.App or fiber.App.
-func isFiberAppType(t types.Type) bool {
-	return fiberNamed(t) == "App"
-}
-
 // isFiberRouterType reports whether a type can have routes registered on it:
 // the App itself, or a group carved out of it. App.Group returns the
 // fiber.Router interface, so a group variable's static type is usually that.
