@@ -1768,7 +1768,7 @@ func TestPipeline_AllProjects_Build(t *testing.T) {
 		"chi-basic", "chi-nested", "chi-inline", "chi-helpers", "chi-multipkg",
 		"gin-basic", "gin-groups", "gin-helpers",
 		"multipart", "mixed-auth", "gin-bind-query", "gorilla-basic", "echo-basic", "fiber-basic",
-		"stdlib-basic", "stdlib-multipkg",
+		"stdlib-basic", "stdlib-multipkg", "gorilla-multipkg",
 	}
 	for _, name := range projects {
 		t.Run(name, func(t *testing.T) {

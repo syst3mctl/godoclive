@@ -5,7 +5,6 @@ import (
 	"go/token"
 	"go/types"
 	"regexp"
-	"strings"
 
 	"golang.org/x/tools/go/packages"
 )
@@ -16,80 +15,127 @@ var gorillaParamRegex = regexp.MustCompile(`\{([^:}]+)(:[^}]*)?\}`)
 type GorillaExtractor struct{}
 
 // Extract walks all packages and extracts gorilla/mux route registrations.
+//
+// Functions that own a router outright are walked first, with every call to a
+// registration function expanded inline so the subrouter prefix and middleware
+// chain at the call site flow into the routes that function registers. A second
+// pass picks up registration functions no call site reached, so their routes
+// still appear, carrying the caveat that their prefix is unknown.
 func (e *GorillaExtractor) Extract(pkgs []*packages.Package) ([]RawRoute, error) {
-	var routes []RawRoute
+	idx := buildRouterIndex(pkgs, routerIndexSpec{
+		inScope:   isGorillaPackage,
+		registers: registersGorillaRoutes,
+		isRouter:  isGorillaMuxType,
+	})
 
-	for _, pkg := range pkgs {
-		if !isGorillaPackage(pkg) {
+	var routes []RawRoute
+	for _, h := range idx.ordered {
+		if h.paramIdx >= 0 {
+			continue // registers on a router it is handed: reached via call sites
+		}
+		w := newGorillaWalker(h.pkg, h.astFile, idx, nil)
+		w.walkBlock(h.decl.Body.List, "", nil)
+		routes = append(routes, w.routes...)
+	}
+
+	for _, h := range idx.ordered {
+		if h.paramIdx < 0 || idx.reached[h.decl] {
 			continue
 		}
-		for _, file := range pkg.Syntax {
-			fpath := pkg.Fset.Position(file.Pos()).Filename
-			w := &gorillaWalker{
-				fset:       pkg.Fset,
-				astFile:    file,
-				file:       fpath,
-				info:       pkg.TypesInfo,
-				routerVars: make(map[string]string),
-			}
-			for _, decl := range file.Decls {
-				fn, ok := decl.(*ast.FuncDecl)
-				if !ok || fn.Body == nil {
-					continue
-				}
-				if fn.Name.Name == "main" || fn.Name.Name == "init" || usesGorillaMux(fn, pkg.TypesInfo) {
-					w.walkBlock(fn.Body.List, "", nil)
-				}
-			}
-			routes = append(routes, w.routes...)
-		}
+		w := newGorillaWalker(h.pkg, h.astFile, idx, []string{unknownOriginNote(h.decl.Name.Name)})
+		w.walkBlock(h.decl.Body.List, "", nil)
+		routes = append(routes, w.routes...)
 	}
 
 	return routes, nil
 }
 
+// gorillaPkgPath is the import path of gorilla/mux.
+const gorillaPkgPath = "github.com/gorilla/mux"
+
 // isGorillaPackage returns true if the package imports gorilla/mux.
 func isGorillaPackage(pkg *packages.Package) bool {
 	for imp := range pkg.Imports {
-		if imp == "github.com/gorilla/mux" {
+		if imp == gorillaPkgPath {
 			return true
 		}
 	}
 	return false
 }
 
-// isGorillaMuxType checks if a types.Type is a gorilla/mux router type.
+// isGorillaMuxType reports whether a types.Type is *mux.Router, comparing the
+// owning package path rather than the printed type string.
 func isGorillaMuxType(t types.Type) bool {
+	if t == nil {
+		return false
+	}
 	if ptr, ok := t.(*types.Pointer); ok {
 		t = ptr.Elem()
 	}
-	s := t.String()
-	return strings.Contains(s, "mux.Router")
-}
-
-// usesGorillaMux returns true if a FuncDecl has a param or return type
-// involving *mux.Router, indicating it sets up routes.
-func usesGorillaMux(fn *ast.FuncDecl, info *types.Info) bool {
-	if fn.Type == nil || info == nil {
+	named, ok := t.(*types.Named)
+	if !ok {
 		return false
 	}
-	if fn.Type.Params != nil {
-		for _, field := range fn.Type.Params.List {
-			t := info.TypeOf(field.Type)
-			if t != nil && isGorillaMuxType(t) {
-				return true
-			}
-		}
+	obj := named.Obj()
+	return obj != nil && obj.Pkg() != nil &&
+		obj.Pkg().Path() == gorillaPkgPath && obj.Name() == "Router"
+}
+
+// isGorillaReceiver reports whether the receiver of a method call is a
+// mux.Router, e.g. the r in r.HandleFunc("/x", h).
+func isGorillaReceiver(sel *ast.SelectorExpr, info *types.Info) bool {
+	if info == nil {
+		return false
 	}
-	if fn.Type.Results != nil {
-		for _, field := range fn.Type.Results.List {
-			t := info.TypeOf(field.Type)
-			if t != nil && isGorillaMuxType(t) {
-				return true
-			}
-		}
+	// Resolving the selection first also covers a router reached through an
+	// embedded field (type Server struct{ *mux.Router }).
+	if receiverInPackage(sel, info, func(p string) bool { return p == gorillaPkgPath }) {
+		return true
 	}
-	return false
+	return isGorillaMuxType(info.TypeOf(sel.X))
+}
+
+// gorillaRouterMethods are the mux.Router methods that structure a router or
+// register on it.
+var gorillaRouterMethods = map[string]bool{
+	"HandleFunc": true,
+	"Handle":     true,
+	"Use":        true,
+	"PathPrefix": true,
+}
+
+// registersGorillaRoutes reports whether a function body calls a mux.Router
+// method on a router value. Gating on the body rather than on the signature
+// covers the shapes real projects use to set routes up outside main() — a
+// factory returning http.Handler, a method on a server struct — none of which
+// name a mux type in their signature.
+func registersGorillaRoutes(fn *ast.FuncDecl, info *types.Info) bool {
+	if info == nil {
+		return false
+	}
+	var found bool
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		if found {
+			return false
+		}
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		if !gorillaRouterMethods[sel.Sel.Name] {
+			return true
+		}
+		if isGorillaReceiver(sel, info) {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
 }
 
 // gorillaWalker extracts gorilla/mux routes from a single file.
@@ -98,13 +144,30 @@ type gorillaWalker struct {
 	astFile    *ast.File
 	file       string
 	info       *types.Info
+	idx        *routerIndex
+	notes      []string
+	depth      int
+	stack      map[*ast.FuncDecl]bool
 	routes     []RawRoute
 	routerVars map[string]string // variable name → path prefix (for subrouters)
 }
 
+func newGorillaWalker(pkg *packages.Package, file *ast.File, idx *routerIndex, notes []string) *gorillaWalker {
+	return &gorillaWalker{
+		fset:       pkg.Fset,
+		astFile:    file,
+		file:       pkg.Fset.Position(file.Pos()).Filename,
+		info:       pkg.TypesInfo,
+		idx:        idx,
+		notes:      notes,
+		stack:      make(map[*ast.FuncDecl]bool),
+		routerVars: make(map[string]string),
+	}
+}
+
 // walkBlock walks a list of statements looking for gorilla/mux route registrations.
-func (w *gorillaWalker) walkBlock(stmts []ast.Stmt, prefix string, parentMW []ast.Expr) {
-	scopeMW := copyExprs(parentMW)
+func (w *gorillaWalker) walkBlock(stmts []ast.Stmt, prefix string, parentMW []MiddlewareRef) {
+	scopeMW := copyMiddleware(parentMW)
 
 	for _, stmt := range stmts {
 		switch s := stmt.(type) {
@@ -115,7 +178,9 @@ func (w *gorillaWalker) walkBlock(stmts []ast.Stmt, prefix string, parentMW []as
 			if !ok {
 				continue
 			}
-			w.processExprCall(call, prefix, &scopeMW)
+			if !w.processExprCall(call, prefix, &scopeMW) {
+				w.expandRegistrationCall(call, prefix, scopeMW)
+			}
 		default:
 			// Routes may be registered conditionally; descend into nested blocks.
 			for _, body := range nestedStmtBodies(stmt) {
@@ -174,50 +239,108 @@ func (w *gorillaWalker) handleAssign(assign *ast.AssignStmt, currentPrefix strin
 
 // processExprCall dispatches the outermost call expression.
 // It first checks for the .Methods() chain pattern, then falls through to normal dispatch.
-func (w *gorillaWalker) processExprCall(call *ast.CallExpr, prefix string, scopeMW *[]ast.Expr) {
+func (w *gorillaWalker) processExprCall(call *ast.CallExpr, prefix string, scopeMW *[]MiddlewareRef) bool {
 	// Check if outermost call is .Methods("GET", ...)
 	if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Methods" {
 		methods := extractMethodStrings(call.Args)
 		// The receiver of .Methods() should be the HandleFunc/Handle call.
 		if innerCall, ok := sel.X.(*ast.CallExpr); ok {
-			w.addChainedRoute(innerCall, prefix, *scopeMW, methods)
+			return w.addChainedRoute(innerCall, prefix, *scopeMW, methods)
 		}
-		return
+		return false
 	}
 
 	// Otherwise, normal dispatch (Use, HandleFunc without .Methods, etc.)
-	w.processCall(call, prefix, scopeMW)
+	return w.processCall(call, prefix, scopeMW)
 }
 
-// processCall handles non-chained calls: Use and HandleFunc/Handle without .Methods().
-func (w *gorillaWalker) processCall(call *ast.CallExpr, prefix string, scopeMW *[]ast.Expr) {
+// processCall handles non-chained calls: Use and HandleFunc/Handle without
+// .Methods(). It reports whether the call was a router registration.
+func (w *gorillaWalker) processCall(call *ast.CallExpr, prefix string, scopeMW *[]MiddlewareRef) bool {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {
-		return
+		return false
+	}
+	// Handle and Use are ordinary method names on plenty of types. Now that
+	// every route-setup function is walked, the receiver has to be confirmed as
+	// a mux.Router or an unrelated bus.Handle("topic", fn) becomes a route.
+	if !isGorillaReceiver(sel, w.info) {
+		return false
 	}
 	name := sel.Sel.Name
 
-	// Resolve receiver prefix for subrouters.
-	callPrefix := prefix
-	if recvIdent, ok := sel.X.(*ast.Ident); ok {
-		if p, isRouter := w.routerVars[recvIdent.Name]; isRouter {
-			callPrefix = p
-		}
-	}
-
 	switch name {
 	case "Use":
-		*scopeMW = append(*scopeMW, call.Args...)
+		*scopeMW = append(*scopeMW, middlewareRefs(call.Args, w.info)...)
 
 	case "HandleFunc", "Handle":
 		if len(call.Args) >= 2 {
-			w.addRoute(call, callPrefix, *scopeMW)
+			w.addRoute(call, w.receiverPrefix(sel, prefix), *scopeMW)
+		}
+
+	default:
+		return false
+	}
+	return true
+}
+
+// receiverPrefix resolves the path prefix a registration's receiver carries: a
+// subrouter variable brings its own, anything else uses the current scope.
+func (w *gorillaWalker) receiverPrefix(sel *ast.SelectorExpr, prefix string) string {
+	if recvIdent, ok := sel.X.(*ast.Ident); ok {
+		if p, isRouter := w.routerVars[recvIdent.Name]; isRouter {
+			return p
 		}
 	}
+	return prefix
+}
+
+// expandRegistrationCall handles a plain call to a function that registers
+// routes on a router it is handed, e.g. routes.Register(r).
+func (w *gorillaWalker) expandRegistrationCall(call *ast.CallExpr, prefix string, scopeMW []MiddlewareRef) {
+	h := w.idx.lookup(w.info, call.Fun)
+	if h == nil || h.paramIdx < 0 || h.paramIdx >= len(call.Args) {
+		return
+	}
+	arg := call.Args[h.paramIdx]
+	if !isGorillaMuxType(w.info.TypeOf(arg)) {
+		return
+	}
+	// A subrouter handed to the registrar carries its own prefix.
+	argPrefix := prefix
+	if ident, ok := arg.(*ast.Ident); ok {
+		if p, isRouter := w.routerVars[ident.Name]; isRouter {
+			argPrefix = p
+		}
+	}
+	w.expandInto(h, argPrefix, scopeMW)
+}
+
+// expandInto walks a registration function's body under the given prefix and
+// middleware chain, folding the routes it finds into this walker.
+func (w *gorillaWalker) expandInto(h *routerHelper, prefix string, parentMW []MiddlewareRef) {
+	if h == nil {
+		return
+	}
+	w.idx.reached[h.decl] = true
+
+	if w.depth >= maxHelperDepth || w.stack[h.decl] {
+		return // recursion or runaway nesting: stop, but stay marked as reached
+	}
+
+	inner := newGorillaWalker(h.pkg, h.astFile, w.idx, w.notes)
+	inner.depth = w.depth + 1
+	for decl := range w.stack {
+		inner.stack[decl] = true
+	}
+	inner.stack[h.decl] = true
+	inner.walkBlock(h.decl.Body.List, prefix, parentMW)
+
+	w.routes = append(w.routes, inner.routes...)
 }
 
 // addRoute records a route without .Methods() chain (ANY method).
-func (w *gorillaWalker) addRoute(call *ast.CallExpr, prefix string, middlewares []ast.Expr) {
+func (w *gorillaWalker) addRoute(call *ast.CallExpr, prefix string, middlewares []MiddlewareRef) {
 	if hasIgnoreDirective(w.fset, w.astFile, call.Pos(), call.End()) {
 		return
 	}
@@ -230,33 +353,31 @@ func (w *gorillaWalker) addRoute(call *ast.CallExpr, prefix string, middlewares 
 		Method:      "ANY",
 		Path:        fullPath,
 		HandlerExpr: handler,
-		Middlewares: middlewareRefs(middlewares, w.info),
+		Middlewares: middlewares,
 		File:        w.file,
 		Line:        pos.Line,
+		Unresolved:  w.notes,
 	})
 }
 
 // addChainedRoute records routes from a HandleFunc/Handle call chained with .Methods().
-func (w *gorillaWalker) addChainedRoute(call *ast.CallExpr, prefix string, middlewares []ast.Expr, methods []string) {
-	if hasIgnoreDirective(w.fset, w.astFile, call.Pos(), call.End()) {
-		return
-	}
+func (w *gorillaWalker) addChainedRoute(call *ast.CallExpr, prefix string, middlewares []MiddlewareRef, methods []string) bool {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok || len(call.Args) < 2 {
-		return
+		return false
 	}
 	name := sel.Sel.Name
 	if name != "HandleFunc" && name != "Handle" {
-		return
+		return false
+	}
+	if !isGorillaReceiver(sel, w.info) {
+		return false
+	}
+	if hasIgnoreDirective(w.fset, w.astFile, call.Pos(), call.End()) {
+		return true // a registration all the same, just suppressed
 	}
 
-	// Resolve receiver prefix.
-	callPrefix := prefix
-	if recvIdent, ok := sel.X.(*ast.Ident); ok {
-		if p, isRouter := w.routerVars[recvIdent.Name]; isRouter {
-			callPrefix = p
-		}
-	}
+	callPrefix := w.receiverPrefix(sel, prefix)
 
 	patternArg := stringLitValue(call.Args[0])
 	fullPath := NormalizeGorillaPath(joinPath(callPrefix, patternArg))
@@ -270,11 +391,13 @@ func (w *gorillaWalker) addChainedRoute(call *ast.CallExpr, prefix string, middl
 			Method:      m,
 			Path:        fullPath,
 			HandlerExpr: handler,
-			Middlewares: middlewareRefs(middlewares, w.info),
+			Middlewares: middlewares,
 			File:        w.file,
 			Line:        pos.Line,
+			Unresolved:  w.notes,
 		})
 	}
+	return true
 }
 
 // extractMethodStrings extracts string literals from .Methods("GET", "POST") args.

@@ -649,177 +649,132 @@ func TestStdlibExtractor_PatternParsing(t *testing.T) {
 	}
 }
 
-// TestChiExtractor_MultiPackage covers routes registered outside main(), the
-// layout of every real chi service: main() owns the router and hands it to
-// another package, and sub-routers are built by factories whose signatures name
-// no chi type. Regression test for issue #33, where none of these were found.
-func TestChiExtractor_MultiPackage(t *testing.T) {
-	dir := testdataDir("chi-multipkg")
-	pkgs, err := loader.LoadPackages(dir, "./...")
+// --- routes registered outside main() ---
+//
+// Every router framework has to cope with the layout of a real service: main()
+// owns the router and hands it to another package, sub-routers are built by
+// factories whose signatures name no router type, and a server struct keeps its
+// router in a field. Regression tests for issue #33 and its siblings.
+
+// extractRoutes runs one extractor over a testdata module.
+func extractRoutes(t *testing.T, ext extractor.Extractor, module string) []extractor.RawRoute {
+	t.Helper()
+	pkgs, err := loader.LoadPackages(testdataDir(module), "./...")
 	if err != nil {
 		t.Fatalf("LoadPackages failed: %v", err)
 	}
-
-	ext := &extractor.ChiExtractor{}
 	routes, err := ext.Extract(pkgs)
 	if err != nil {
 		t.Fatalf("Extract failed: %v", err)
 	}
+	return routes
+}
 
-	expected := map[string]bool{
-		// routes.Register(r), called from main() at the root prefix.
-		"GET /health": true,
-		// registerPayments(r), reached through r.Route("/api/v1", …) so the
-		// prefix of the call site flows into the registrar.
-		"GET /api/v1/payments":             true,
-		"POST /api/v1/payments":            true,
-		"GET /api/v1/payments/{paymentID}": true,
-		// admin.Router() builds its own router and is mounted under /admin.
-		"GET /admin/dashboard": true,
-		// A router held in a struct field, registered from a method.
-		"GET /status": true,
-		// Route methods promoted from an embedded chi.Router.
-		"GET /embedded": true,
+// assertRoutesOutsideMain checks that a module's routes are exactly the
+// expected set, each emitted once and with no unresolved caveat — every route
+// in these modules reaches a resolvable call site.
+func assertRoutesOutsideMain(t *testing.T, ext extractor.Extractor, module string, expected []string) {
+	t.Helper()
+	routes := extractRoutes(t, ext, module)
+
+	want := make(map[string]bool, len(expected))
+	for _, key := range expected {
+		want[key] = true
 	}
 
 	seen := map[string]bool{}
 	for _, r := range routes {
 		key := r.Method + " " + r.Path
 		if seen[key] {
-			t.Errorf("route emitted twice: %s", key)
+			t.Errorf("%s: route emitted twice: %s", module, key)
 		}
 		seen[key] = true
-		if !expected[key] {
-			t.Errorf("unexpected route: %s (%s:%d)", key, r.File, r.Line)
+		if !want[key] {
+			t.Errorf("%s: unexpected route: %s (%s:%d)", module, key, r.File, r.Line)
 		}
-	}
-	for key := range expected {
-		if !seen[key] {
-			t.Errorf("missing route: %s", key)
-		}
-	}
-
-	// Every route reached a resolvable call site, so none carries an
-	// unknown-origin caveat.
-	for _, r := range routes {
 		if len(r.Unresolved) > 0 {
-			t.Errorf("%s %s: unexpected caveat %v", r.Method, r.Path, r.Unresolved)
+			t.Errorf("%s: %s: unexpected caveat %v", module, key, r.Unresolved)
 		}
 	}
+	for key := range want {
+		if !seen[key] {
+			t.Errorf("%s: missing route: %s", module, key)
+		}
+	}
+}
+
+// assertNoRouteMatching guards each extractor's receiver type check: now that
+// every route-setup function is walked, an unrelated method that happens to
+// share a registration's name must not become a route.
+func assertNoRouteMatching(t *testing.T, ext extractor.Extractor, module, needle string) {
+	t.Helper()
+	for _, r := range extractRoutes(t, ext, module) {
+		if strings.Contains(r.Path, needle) {
+			t.Errorf("%s: non-router call extracted as route %s %s (%s:%d)",
+				module, r.Method, r.Path, r.File, r.Line)
+		}
+	}
+}
+
+func TestChiExtractor_RoutesOutsideMain(t *testing.T) {
+	assertRoutesOutsideMain(t, &extractor.ChiExtractor{}, "chi-multipkg", []string{
+		// routes.Register(r), called from main() at the root prefix.
+		"GET /health",
+		// registerPayments(r), reached through r.Route("/api/v1", …) so the
+		// prefix of the call site flows into the registrar.
+		"GET /api/v1/payments",
+		"POST /api/v1/payments",
+		"GET /api/v1/payments/{paymentID}",
+		// admin.Router() builds its own router and is mounted under /admin.
+		"GET /admin/dashboard",
+		// A router held in a struct field, registered from a method.
+		"GET /status",
+		// Route methods promoted from an embedded chi.Router.
+		"GET /embedded",
+	})
+	assertNoRouteMatching(t, &extractor.ChiExtractor{}, "chi-multipkg", "warm")
 }
 
 // TestChiExtractor_MountedRouterNotDuplicated pins the rule that a factory
 // mounted by another function is emitted only under its mount prefix — never a
 // second time at the bare path it uses internally.
 func TestChiExtractor_MountedRouterNotDuplicated(t *testing.T) {
-	dir := testdataDir("chi-multipkg")
-	pkgs, err := loader.LoadPackages(dir, "./...")
-	if err != nil {
-		t.Fatalf("LoadPackages failed: %v", err)
-	}
-
-	ext := &extractor.ChiExtractor{}
-	routes, err := ext.Extract(pkgs)
-	if err != nil {
-		t.Fatalf("Extract failed: %v", err)
-	}
-
-	for _, r := range routes {
+	for _, r := range extractRoutes(t, &extractor.ChiExtractor{}, "chi-multipkg") {
 		if r.Path == "/dashboard" {
 			t.Errorf("mounted route emitted without its /admin prefix (%s:%d)", r.File, r.Line)
 		}
 	}
 }
 
-// TestChiExtractor_NonRouterMethodIgnored guards the type check on the
-// receiver: walking every function means unrelated methods that happen to be
-// named Get or Post are now in scope, and must not become routes.
-func TestChiExtractor_NonRouterMethodIgnored(t *testing.T) {
-	dir := testdataDir("chi-multipkg")
-	pkgs, err := loader.LoadPackages(dir, "./...")
-	if err != nil {
-		t.Fatalf("LoadPackages failed: %v", err)
-	}
-
-	ext := &extractor.ChiExtractor{}
-	routes, err := ext.Extract(pkgs)
-	if err != nil {
-		t.Fatalf("Extract failed: %v", err)
-	}
-
-	for _, r := range routes {
-		if r.Path == "warm" {
-			t.Errorf("cache.Get(\"warm\", …) was extracted as a route (%s:%d)", r.File, r.Line)
-		}
-	}
-}
-
-// TestStdlibExtractor_MultiPackage covers a ServeMux that reaches the
-// registration site as a parameter or a struct field rather than as a local
-// variable — the layout of any service that keeps routes out of main().
-func TestStdlibExtractor_MultiPackage(t *testing.T) {
-	dir := testdataDir("stdlib-multipkg")
-	pkgs, err := loader.LoadPackages(dir, "./...")
-	if err != nil {
-		t.Fatalf("LoadPackages failed: %v", err)
-	}
-
-	ext := &extractor.StdlibExtractor{}
-	routes, err := ext.Extract(pkgs)
-	if err != nil {
-		t.Fatalf("Extract failed: %v", err)
-	}
-
-	expected := map[string]bool{
+func TestStdlibExtractor_RoutesOutsideMain(t *testing.T) {
+	assertRoutesOutsideMain(t, &extractor.StdlibExtractor{}, "stdlib-multipkg", []string{
 		// Handed to routes.Register(mux) from main().
-		"GET /health": true,
+		"GET /health",
 		// Handed on again to registerItems(mux).
-		"GET /api/v1/items":          true,
-		"POST /api/v1/items":         true,
-		"GET /api/v1/items/{itemID}": true,
+		"GET /api/v1/items",
+		"POST /api/v1/items",
+		"GET /api/v1/items/{itemID}",
 		// Built inside a factory whose signature names no mux type.
-		"GET /factory": true,
+		"GET /factory",
 		// Registered on a mux held in a struct field.
-		"GET /status": true,
-	}
-
-	seen := map[string]bool{}
-	for _, r := range routes {
-		key := r.Method + " " + r.Path
-		if seen[key] {
-			t.Errorf("route emitted twice: %s", key)
-		}
-		seen[key] = true
-		if !expected[key] {
-			t.Errorf("unexpected route: %s (%s:%d)", key, r.File, r.Line)
-		}
-	}
-	for key := range expected {
-		if !seen[key] {
-			t.Errorf("missing route: %s", key)
-		}
-	}
+		"GET /status",
+	})
+	assertNoRouteMatching(t, &extractor.StdlibExtractor{}, "stdlib-multipkg", "warm")
 }
 
-// TestStdlibExtractor_NonMuxHandleIgnored guards the receiver type check:
-// Handle is a common method name, and only a *http.ServeMux receiver makes it
-// a route.
-func TestStdlibExtractor_NonMuxHandleIgnored(t *testing.T) {
-	dir := testdataDir("stdlib-multipkg")
-	pkgs, err := loader.LoadPackages(dir, "./...")
-	if err != nil {
-		t.Fatalf("LoadPackages failed: %v", err)
-	}
-
-	ext := &extractor.StdlibExtractor{}
-	routes, err := ext.Extract(pkgs)
-	if err != nil {
-		t.Fatalf("Extract failed: %v", err)
-	}
-
-	for _, r := range routes {
-		if strings.Contains(r.Path, "warm") {
-			t.Errorf("bus.Handle(\"warm\", …) was extracted as a route (%s:%d)", r.File, r.Line)
-		}
-	}
+func TestGorillaExtractor_RoutesOutsideMain(t *testing.T) {
+	assertRoutesOutsideMain(t, &extractor.GorillaExtractor{}, "gorilla-multipkg", []string{
+		// routes.Register(r), called from main() at the root prefix.
+		"GET /health",
+		// routes.RegisterItems(api) is handed a subrouter, so the prefix that
+		// subrouter carries flows across the package boundary.
+		"GET /api/v1/items",
+		"POST /api/v1/items",
+		"GET /api/v1/items/{itemID}",
+		// Built inside a factory whose signature names no mux type.
+		"GET /factory",
+		// Registered on a router held in a struct field.
+		"GET /status",
+	})
+	assertNoRouteMatching(t, &extractor.GorillaExtractor{}, "gorilla-multipkg", "warm")
 }
