@@ -70,7 +70,7 @@ func TestPipeline_ChiBasic_ListUsers(t *testing.T) {
 	}
 
 	// Summary inferred from handler name.
-	if ep.Summary != "List Users" {
+	if ep.Summary != "Returns a paginated list of users." {
 		t.Errorf("Summary = %q, want %q", ep.Summary, "List Users")
 	}
 
@@ -137,7 +137,7 @@ func TestPipeline_ChiBasic_CreateUser(t *testing.T) {
 		t.Fatal("POST /users not found")
 	}
 
-	if ep.Summary != "Create User" {
+	if ep.Summary != "Creates a new user from the JSON request body." {
 		t.Errorf("Summary = %q, want %q", ep.Summary, "Create User")
 	}
 
@@ -332,7 +332,7 @@ func TestPipeline_GinBasic_CreateItem(t *testing.T) {
 		t.Fatal("POST /api/v1/items not found")
 	}
 
-	if ep.Summary != "Create Item" {
+	if ep.Summary != "Creates a new item from JSON body." {
 		t.Errorf("Summary = %q, want %q", ep.Summary, "Create Item")
 	}
 
@@ -504,7 +504,7 @@ func TestPipeline_ChiHelpers_HealthCheck(t *testing.T) {
 		t.Fatal("GET /health not found")
 	}
 
-	if ep.Summary != "Health Check" {
+	if ep.Summary != "Reports that the service is up." {
 		t.Errorf("Summary = %q, want %q", ep.Summary, "Health Check")
 	}
 
@@ -1842,7 +1842,7 @@ func TestPipeline_StdlibBasic_ListUsers(t *testing.T) {
 	}
 
 	// Summary inferred from handler name.
-	if ep.Summary != "List Users" {
+	if ep.Summary != "Returns a paginated list of users." {
 		t.Errorf("Summary = %q, want %q", ep.Summary, "List Users")
 	}
 

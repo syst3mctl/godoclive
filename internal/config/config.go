@@ -51,10 +51,11 @@ type ServerConfig struct {
 
 // Override allows users to supplement or override static analysis results.
 type Override struct {
-	Path      string             `yaml:"path"`      // "POST /users"
-	Summary   string             `yaml:"summary"`   // Override inferred summary
-	Tags      []string           `yaml:"tags"`      // Override inferred tags
-	Responses []ResponseOverride `yaml:"responses"` // Additional responses
+	Path        string             `yaml:"path"`        // "POST /users"
+	Summary     string             `yaml:"summary"`     // Override inferred summary
+	Description string             `yaml:"description"` // Override the handler doc comment
+	Tags        []string           `yaml:"tags"`        // Override inferred tags
+	Responses   []ResponseOverride `yaml:"responses"`   // Additional responses
 }
 
 // ResponseOverride adds a response that static analysis may have missed.
@@ -134,6 +135,9 @@ func ApplyOverrides(endpoints []model.EndpointDef, overrides []Override) []model
 
 		if ov.Summary != "" {
 			endpoints[i].Summary = ov.Summary
+		}
+		if ov.Description != "" {
+			endpoints[i].Description = ov.Description
 		}
 		if len(ov.Tags) > 0 {
 			endpoints[i].Tags = ov.Tags

@@ -48,10 +48,16 @@ func (e *FiberExtractor) Extract(pkgs []*packages.Package) ([]RawRoute, error) {
 		inScope:   isFiberPackage,
 		registers: registersFiberRoutes,
 		isRouter:  isFiberRouterType,
+		wrapsPath: wrapsFiberRoutes,
 	})
 
 	var routes []RawRoute
 	for _, h := range idx.ordered {
+		if h.wraps {
+			// A house router wrapper only means something once expanded at a
+			// call site; on its own its path is a parameter name.
+			continue
+		}
 		if h.paramIdx >= 0 {
 			continue // registers on a router it is handed: reached via call sites
 		}
@@ -170,6 +176,7 @@ type fiberGroup struct {
 }
 
 type fiberWalker struct {
+	bind    *paramBinding // set when walking a house router wrapper's body
 	fset    *token.FileSet
 	astFile *ast.File
 	file    string
@@ -224,7 +231,14 @@ func (w *fiberWalker) walkBlock(stmts []ast.Stmt, prefix string, parentMW []Midd
 // routes on a router it is handed, e.g. routes.Register(app).
 func (w *fiberWalker) expandRegistrationCall(call *ast.CallExpr, prefix string, scopeMW []MiddlewareRef) {
 	h := w.idx.lookup(w.info, call.Fun)
-	if h == nil || h.paramIdx < 0 || h.paramIdx >= len(call.Args) {
+	if h == nil {
+		return
+	}
+	if h.wraps && canWrap(h, call) {
+		w.expandWrapperCall(h, call, prefix, scopeMW)
+		return
+	}
+	if h.paramIdx < 0 || h.paramIdx >= len(call.Args) {
 		return
 	}
 	arg := call.Args[h.paramIdx]
@@ -366,7 +380,7 @@ func (w *fiberWalker) addRoute(call *ast.CallExpr, prefix string, middlewares []
 	if hasIgnoreDirective(w.fset, w.astFile, call.Pos(), call.End()) {
 		return
 	}
-	patternArg := stringLitValue(call.Args[0])
+	patternArg := boundString(w.info, w.bind, call.Args[0])
 	fullPath := NormalizeFiberPath(joinPath(prefix, patternArg))
 
 	// Last arg is the handler; args between path and handler are inline middlewares.
@@ -376,10 +390,11 @@ func (w *fiberWalker) addRoute(call *ast.CallExpr, prefix string, middlewares []
 		inlineMW = copyExprs(call.Args[1 : len(call.Args)-1])
 	}
 
+	handler, handlerInfo, substituted := boundExpr(w.info, w.bind, handler)
 	allMW := concatMiddleware(middlewares, w.mwRefs(inlineMW))
 
 	pos := w.fset.Position(call.Pos())
-	w.routes = append(w.routes, RawRoute{
+	route := RawRoute{
 		Method:      method,
 		Path:        fullPath,
 		HandlerExpr: handler,
@@ -387,5 +402,37 @@ func (w *fiberWalker) addRoute(call *ast.CallExpr, prefix string, middlewares []
 		File:        w.file,
 		Line:        pos.Line,
 		Unresolved:  w.notes,
-	})
+	}
+	w.routes = append(w.routes, applyBinding(route, w.bind, handlerInfo, substituted))
+}
+
+// wrapsFiberRoutes reports whether a function is a house router wrapper over
+// fiber: it registers a route whose path it takes as a parameter.
+func wrapsFiberRoutes(fn *ast.FuncDecl, info *types.Info) bool {
+	return wrapsRoutes(fn, info, func(name string) bool { return fiberMethods[name] != "" }, isFiberRouterType)
+}
+
+// expandWrapperCall walks a house router wrapper's body with the call's
+// arguments bound to its parameters, so the path and handler it was handed
+// resolve.
+func (w *fiberWalker) expandWrapperCall(h *routerHelper, call *ast.CallExpr, prefix string, parentMW []MiddlewareRef) {
+	if w.depth >= maxHelperDepth || w.stack[h.decl] {
+		return
+	}
+	bind := bindCallArgs(h, call, w.fset, w.info)
+	if bind == nil {
+		return
+	}
+	w.idx.reached[h.decl] = true
+
+	inner := newFiberWalker(h.pkg, h.astFile, w.idx, w.notes)
+	inner.depth = w.depth + 1
+	inner.bind = bind
+	for decl := range w.stack {
+		inner.stack[decl] = true
+	}
+	inner.stack[h.decl] = true
+	inner.walkBlock(h.decl.Body.List, prefix, parentMW)
+
+	w.routes = append(w.routes, inner.routes...)
 }

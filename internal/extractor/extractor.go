@@ -14,6 +14,7 @@ type RawRoute struct {
 	Method      string          // GET, POST, PUT, DELETE, PATCH
 	Path        string          // Normalized path with {param} format
 	HandlerExpr ast.Expr        // The AST expression referencing the handler function
+	HandlerInfo *types.Info     // Type info the handler expression belongs to, when it is not the route's own file's
 	Middlewares []MiddlewareRef // Middleware expressions applied to this route
 	File        string          // Source file where this route was registered
 	Line        int             // Line number of the route registration

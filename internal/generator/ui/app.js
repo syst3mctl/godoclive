@@ -616,6 +616,15 @@
       lines.push('  -H "' + h.name + ': your-value"');
     });
 
+    // Cookies. The Try It panel cannot send these — fetch forbids scripts from
+    // setting a Cookie header — but curl can, so the snippet carries them.
+    var cookiePairs = (ep.cookies || []).map(function (c) {
+      return c.name + '=your-value';
+    });
+    if (cookiePairs.length > 0) {
+      lines.push('  -b "' + cookiePairs.join('; ') + '"');
+    }
+
     // Body
     if (ep.body && ep.body.example) {
       lines.push('  -H "Content-Type: ' + requestContentType(ep.body.contentType) + '"');
@@ -884,6 +893,16 @@
           html += '<div class="card-summary">' + esc(ep.summary) + '</div>';
         }
 
+        // Description — the rest of the handler's doc comment. Paragraphs are
+        // kept apart; the text is escaped, never treated as markup.
+        if (ep.description) {
+          html += '<div class="card-description">';
+          ep.description.split('\n\n').forEach(function (para) {
+            html += '<p>' + esc(para) + '</p>';
+          });
+          html += '</div>';
+        }
+
         // Unresolved callout (hidden by default)
         if (ep.unresolved && ep.unresolved.length > 0) {
           html += '<div class="unresolved-callout hidden" id="unresolved-' + epId + '">';
@@ -909,6 +928,9 @@
         // === Request Headers ===
         if (ep.headers && ep.headers.length > 0) {
           html += buildSection('Request Headers', null, buildHeaderTable(ep.headers));
+        }
+        if (ep.cookies && ep.cookies.length > 0) {
+          html += buildSection('Cookies', null, buildHeaderTable(ep.cookies));
         }
 
         // === Request Body ===
@@ -1050,8 +1072,15 @@
   // Field table (schema)
   // ============================================================
   function buildFieldTable(fields) {
+    // The constraints column costs horizontal room, so it only appears when
+    // some field in this schema actually declares one.
+    var hasConstraints = fields.some(function (f) {
+      return f.constraints && f.constraints.length > 0;
+    });
+
     var h = '<table class="param-table"><thead><tr>';
     h += '<th>Field</th><th>Type</th><th>Required</th>';
+    if (hasConstraints) { h += '<th>Constraints</th>'; }
     h += '</tr></thead><tbody>';
     fields.forEach(function (f) {
       h += '<tr>';
@@ -1063,18 +1092,51 @@
         h += '<span class="field-required-text"> required</span>';
       }
       h += '</td>';
+      if (hasConstraints) {
+        h += '<td>' + constraintChips(f.constraints) + '</td>';
+      }
       h += '</tr>';
     });
     h += '</tbody></table>';
     return h;
   }
 
+  // constraintChips renders the pre-rendered constraint phrases as pills.
+  function constraintChips(constraints) {
+    if (!constraints || constraints.length === 0) { return '<span class="constraint-none">—</span>'; }
+    var h = '<span class="constraint-list">';
+    constraints.forEach(function (c) {
+      h += '<span class="constraint-chip" title="' + esc(c) + '">' + esc(c) + '</span>';
+    });
+    return h + '</span>';
+  }
+
   // ============================================================
   // Response tabs (one per status code)
   // ============================================================
   function buildResponseTabs(responses, epId) {
-    // Sort by status code
+    // Sort by status code, keeping the order alternatives were found in.
     var sorted = responses.slice().sort(function (a, b) { return a.status - b.status; });
+
+    // A handler can answer one status with more than one payload — a full
+    // record, or a trimmed one when the caller asks for a summary. Those are
+    // separate tabs, so the tab key is the position rather than the status,
+    // which would collide, and the label names the shape so the two are
+    // telling apart.
+    var statusCounts = {};
+    sorted.forEach(function (resp) {
+      statusCounts[resp.status] = (statusCounts[resp.status] || 0) + 1;
+    });
+
+    function tabKey(i) { return epId + '-resp-' + i; }
+
+    function tabLabel(resp) {
+      var label = resp.status + ' ' + statusText(resp.status);
+      if (statusCounts[resp.status] > 1 && resp.body && resp.body.typeName) {
+        label += ' \u00b7 ' + resp.body.typeName;
+      }
+      return label;
+    }
 
     var h = '<div class="tab-group" role="tablist" aria-label="Response status codes">';
     sorted.forEach(function (resp, i) {
@@ -1082,10 +1144,10 @@
       var tabClass = statusTabClass(resp.status);
       var selected = i === 0 ? 'true' : 'false';
       h += '<button class="tab-btn ' + tabClass + active + '" role="tab" aria-selected="' + selected + '" ';
-      h += 'data-tab="' + epId + '-resp-' + resp.status + '" ';
-      h += 'id="tab-' + epId + '-resp-' + resp.status + '" ';
-      h += 'aria-controls="panel-' + epId + '-resp-' + resp.status + '">';
-      h += resp.status + ' ' + statusText(resp.status);
+      h += 'data-tab="' + tabKey(i) + '" ';
+      h += 'id="tab-' + tabKey(i) + '" ';
+      h += 'aria-controls="panel-' + tabKey(i) + '">';
+      h += esc(tabLabel(resp));
       h += '</button>';
     });
     h += '</div>';
@@ -1093,8 +1155,8 @@
     // Tab panels
     sorted.forEach(function (resp, i) {
       var active = i === 0 ? ' active' : '';
-      h += '<div class="tab-panel' + active + '" id="panel-' + epId + '-resp-' + resp.status + '" ';
-      h += 'role="tabpanel" aria-labelledby="tab-' + epId + '-resp-' + resp.status + '">';
+      h += '<div class="tab-panel' + active + '" id="panel-' + tabKey(i) + '" ';
+      h += 'role="tabpanel" aria-labelledby="tab-' + tabKey(i) + '">';
 
       // Body-less responses
       var rbody = resp.body;
@@ -1102,8 +1164,8 @@
         h += '<div class="no-body-msg">No response body</div>';
       } else {
         // Inner Schema/Example tabs
-        var innerPrefix = epId + '-resp-' + resp.status;
-        h += '<div class="tab-group" role="tablist" aria-label="Response ' + resp.status + ' views">';
+        var innerPrefix = tabKey(i);
+        h += '<div class="tab-group" role="tablist" aria-label="Response ' + esc(tabLabel(resp)) + ' views">';
         h += '<button class="tab-btn active" role="tab" aria-selected="true" data-tab="' + innerPrefix + '-schema" id="tab-' + innerPrefix + '-schema" aria-controls="panel-' + innerPrefix + '-schema">Schema</button>';
         h += '<button class="tab-btn" role="tab" aria-selected="false" data-tab="' + innerPrefix + '-example" id="tab-' + innerPrefix + '-example" aria-controls="panel-' + innerPrefix + '-example">Example</button>';
         h += '</div>';
@@ -1868,6 +1930,7 @@
           ep.method.toLowerCase().indexOf(q) !== -1 ||
           ep.path.toLowerCase().indexOf(q) !== -1 ||
           (ep.summary && ep.summary.toLowerCase().indexOf(q) !== -1) ||
+        (ep.description && ep.description.toLowerCase().indexOf(q) !== -1) ||
           (ep.tag && ep.tag.toLowerCase().indexOf(q) !== -1);
 
         if (match) { row.classList.remove('hidden'); visibleCount++; }
@@ -1896,6 +1959,7 @@
         ep.method.toLowerCase().indexOf(q) !== -1 ||
         ep.path.toLowerCase().indexOf(q) !== -1 ||
         (ep.summary && ep.summary.toLowerCase().indexOf(q) !== -1) ||
+        (ep.description && ep.description.toLowerCase().indexOf(q) !== -1) ||
         (ep.tag && ep.tag.toLowerCase().indexOf(q) !== -1);
       if (match) card.classList.remove('hidden');
       else card.classList.add('hidden');

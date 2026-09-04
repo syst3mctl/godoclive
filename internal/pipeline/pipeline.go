@@ -32,49 +32,52 @@ func RunPipeline(dir, pattern string, cfg *config.Config) ([]model.EndpointDef, 
 	// O(N×deps) via repeated packages.Visit calls.
 	typeIdx := buildTypeIndex(pkgs)
 
-	// 2. Detect router.
-	routerKind := detector.DetectRouter(pkgs)
-	if routerKind == detector.RouterKindUnknown {
+	// 2. Detect every router framework the project registers routes on. A
+	// service may use more than one — a gin API beside a stdlib ServeMux for
+	// health checks, or a chi tree that still mounts a legacy gorilla subtree.
+	routerKinds := detector.DetectRouters(pkgs)
+	if len(routerKinds) == 0 {
 		return nil, fmt.Errorf("no supported router detected (expected chi, gin, gorilla/mux, echo, fiber, or net/http stdlib)")
 	}
 
-	// 3. Choose and run the appropriate extractor.
-	var ext extractor.Extractor
-	switch routerKind {
-	case detector.RouterKindChi:
-		ext = &extractor.ChiExtractor{}
-	case detector.RouterKindGin:
-		ext = &extractor.GinExtractor{}
-	case detector.RouterKindStdlib:
-		ext = &extractor.StdlibExtractor{}
-	case detector.RouterKindGorilla:
-		ext = &extractor.GorillaExtractor{}
-	case detector.RouterKindEcho:
-		ext = &extractor.EchoExtractor{}
-	case detector.RouterKindFiber:
-		ext = &extractor.FiberExtractor{}
+	// 3. Run the extractor for each detected framework and take the union.
+	// Every extractor type-checks the receiver it registers on, so one running
+	// against a project that only partly uses its framework yields nothing
+	// rather than false routes.
+	var routes []RawRouteSource
+	for _, kind := range routerKinds {
+		ext := extractorFor(kind)
+		if ext == nil {
+			continue
+		}
+		found, err := ext.Extract(pkgs)
+		if err != nil {
+			return nil, fmt.Errorf("extracting %s routes: %w", kind, err)
+		}
+		for _, r := range found {
+			routes = append(routes, RawRouteSource{Route: r, Router: kind})
+		}
 	}
-
-	routes, err := ext.Extract(pkgs)
-	if err != nil {
-		return nil, fmt.Errorf("extracting routes: %w", err)
-	}
+	routes = dedupeRoutes(routes)
 
 	// 4-8. Process each route into a full EndpointDef.
 	var endpoints []model.EndpointDef
-	for _, route := range routes {
+	for _, src := range routes {
+		route := src.Route
 		ep, err := processRoute(route, pkgs, typeIdx)
 		if err != nil {
 			// Record the error as unresolved rather than failing the whole pipeline.
 			endpoints = append(endpoints, model.EndpointDef{
 				Method:     route.Method,
 				Path:       route.Path,
+				Router:     string(src.Router),
 				File:       route.File,
 				Line:       route.Line,
 				Unresolved: []string{err.Error()},
 			})
 			continue
 		}
+		ep.Router = string(src.Router)
 		endpoints = append(endpoints, ep)
 	}
 
@@ -93,7 +96,13 @@ func RunPipeline(dir, pattern string, cfg *config.Config) ([]model.EndpointDef, 
 // processRoute converts a single RawRoute into a fully-resolved EndpointDef.
 func processRoute(route extractor.RawRoute, pkgs []*packages.Package, typeIdx typeIndex) (model.EndpointDef, error) {
 	// Find the TypesInfo from the package that contains this route's file.
-	info := findInfoForRoute(route, pkgs)
+	// A route expanded through a house router wrapper carries the type info its
+	// handler expression belongs to, which is the call site's package rather
+	// than the wrapper's.
+	info := route.HandlerInfo
+	if info == nil {
+		info = findInfoForRoute(route, pkgs)
+	}
 	if info == nil {
 		return model.EndpointDef{}, fmt.Errorf("could not find type info for route %s %s", route.Method, route.Path)
 	}
@@ -113,6 +122,7 @@ func processRoute(route extractor.RawRoute, pkgs []*packages.Package, typeIdx ty
 	var handlerLine int
 
 	var deprecated bool
+	var handlerDoc model.HandlerDoc
 
 	// The handler may live in a different package than the route registration.
 	// Use the TypesInfo from the handler's own package so that type lookups on
@@ -129,15 +139,11 @@ func processRoute(route extractor.RawRoute, pkgs []*packages.Package, typeIdx ty
 		paramNames = resolver.ResolveHandlerParams(funcDecl.Type, handlerInfo)
 		handlerName = funcDecl.Name.Name
 		handlerFile, handlerLine = posToFileLine(funcDecl.Pos(), pkgs)
-		// Check for // Deprecated: comment on the handler.
-		if funcDecl.Doc != nil {
-			for _, comment := range funcDecl.Doc.List {
-				if strings.Contains(comment.Text, "Deprecated:") {
-					deprecated = true
-					break
-				}
-			}
-		}
+		// The handler's own doc comment is the best description of what it
+		// does; a "Deprecated:" paragraph in it is also how Go marks the
+		// endpoint as going away.
+		handlerDoc = model.ParseHandlerDoc(funcDecl.Doc, funcDecl.Name.Name)
+		deprecated = handlerDoc.Deprecated
 	} else if funcLit != nil {
 		handlerNode = funcLit
 		paramNames = resolver.ResolveHandlerParams(funcLit.Type, handlerInfo)
@@ -188,8 +194,12 @@ func processRoute(route extractor.RawRoute, pkgs []*packages.Package, typeIdx ty
 	authDef, authNotes := auth.DetectAuth(route.Middlewares, info, pkgs)
 	unresolved = append(unresolved, authNotes...)
 
-	// 8. Infer summary and tags.
-	summary := model.InferSummary(handlerName)
+	// 8. Take the summary from the handler's doc comment, falling back to
+	// splitting its name when there is no comment to read.
+	summary := handlerDoc.Summary
+	if summary == "" {
+		summary = model.InferSummary(handlerName)
+	}
 	tags := []string{model.InferTag(handlerName)}
 	if tags[0] == "" {
 		// Fall back to the first meaningful path segment as tag.
@@ -212,6 +222,7 @@ func processRoute(route extractor.RawRoute, pkgs []*packages.Package, typeIdx ty
 		Method:      route.Method,
 		Path:        route.Path,
 		Summary:     summary,
+		Description: handlerDoc.Description,
 		HandlerName: qualifiedName,
 		Package:     handlerPkg,
 		File:        handlerFile,

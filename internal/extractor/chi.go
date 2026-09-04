@@ -48,6 +48,7 @@ func (e *ChiExtractor) Extract(pkgs []*packages.Package) ([]RawRoute, error) {
 		inScope:   isChiPackage,
 		registers: registersChiRoutes,
 		isRouter:  isChiType,
+		wrapsPath: wrapsChiRoutes,
 	})
 
 	// Pass 1. Walking is separated from emission because reachability is only
@@ -62,6 +63,12 @@ func (e *ChiExtractor) Extract(pkgs []*packages.Package) ([]RawRoute, error) {
 	for _, h := range idx.ordered {
 		if h.paramIdx >= 0 {
 			continue // registers on a router it is handed: reached via call sites
+		}
+		if h.wraps {
+			// A house router wrapper registers the path and handler its caller
+			// hands it. Walking its body on its own yields a route with no
+			// path; it is only meaningful once expanded at a call site.
+			continue
 		}
 		w := newChiWalker(h.pkg, h.astFile, idx, nil)
 		w.walkBlock(h.decl.Body, "", nil)
@@ -193,6 +200,7 @@ type chiWalker struct {
 	stack      map[*ast.FuncDecl]bool
 	routerVars map[types.Object]*routerHelper
 	routes     []RawRoute
+	bind       *paramBinding // set when walking a house router wrapper's body
 }
 
 func newChiWalker(pkg *packages.Package, file *ast.File, idx *routerIndex, notes []string) *chiWalker {
@@ -324,19 +332,24 @@ func (w *chiWalker) addRoute(method, prefix string, call *ast.CallExpr, middlewa
 	if hasIgnoreDirective(w.fset, w.astFile, call.Pos(), call.End()) {
 		return
 	}
-	pathArg := stringLitValue(call.Args[0])
+	pathArg := boundString(w.info, w.bind, call.Args[0])
 	fullPath := joinPath(prefix, pathArg)
 
+	// A wrapper takes the handler as a parameter, so the expression to record —
+	// and the type information it belongs to — comes from the call site.
+	handler, handlerInfo, substituted := boundExpr(w.info, w.bind, call.Args[1])
+
 	pos := w.fset.Position(call.Pos())
-	w.routes = append(w.routes, RawRoute{
+	route := RawRoute{
 		Method:      method,
 		Path:        fullPath,
-		HandlerExpr: call.Args[1],
+		HandlerExpr: handler,
 		Middlewares: middlewares,
 		File:        w.file,
 		Line:        pos.Line,
 		Unresolved:  w.notes,
-	})
+	}
+	w.routes = append(w.routes, applyBinding(route, w.bind, handlerInfo, substituted))
 }
 
 // descendInto walks into the sub-router argument of Route/Group/Mount. Besides
@@ -361,7 +374,14 @@ func (w *chiWalker) descendInto(arg ast.Expr, prefix string, parentMW []Middlewa
 // routes on a router it is handed, e.g. routes.RegisterRoutes(r) in main().
 func (w *chiWalker) expandRegistrationCall(call *ast.CallExpr, prefix string, scopeMW []MiddlewareRef) {
 	h := w.idx.lookup(w.info, call.Fun)
-	if h == nil || h.paramIdx < 0 {
+	if h == nil {
+		return
+	}
+	if h.wraps && canWrap(h, call) {
+		w.expandWrapperCall(h, call, prefix, scopeMW)
+		return
+	}
+	if h.paramIdx < 0 {
 		return
 	}
 	// Only follow the call when a router really is being handed over; a call
@@ -442,4 +462,37 @@ func joinPath(prefix, suffix string) string {
 		return prefix
 	}
 	return path.Join(prefix, suffix)
+}
+
+// wrapsChiRoutes reports whether a function is a house router wrapper over chi:
+// it registers a route whose path it takes as a parameter.
+func wrapsChiRoutes(fn *ast.FuncDecl, info *types.Info) bool {
+	return wrapsRoutes(fn, info, func(name string) bool {
+		return chiMethods[name] != ""
+	}, isChiType)
+}
+
+// expandWrapperCall walks a house router wrapper's body with the call's
+// arguments bound to its parameters, so the path and handler it was handed
+// resolve.
+func (w *chiWalker) expandWrapperCall(h *routerHelper, call *ast.CallExpr, prefix string, parentMW []MiddlewareRef) {
+	if w.depth >= maxHelperDepth || w.stack[h.decl] {
+		return
+	}
+	bind := bindCallArgs(h, call, w.fset, w.info)
+	if bind == nil {
+		return
+	}
+	w.idx.reached[h.decl] = true
+
+	inner := newChiWalker(h.pkg, h.astFile, w.idx, w.notes)
+	inner.depth = w.depth + 1
+	inner.bind = bind
+	for decl := range w.stack {
+		inner.stack[decl] = true
+	}
+	inner.stack[h.decl] = true
+	inner.walkBlock(h.decl.Body, prefix, parentMW)
+
+	w.routes = append(w.routes, inner.routes...)
 }

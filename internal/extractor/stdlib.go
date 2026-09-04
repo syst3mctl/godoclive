@@ -14,9 +14,15 @@ import (
 type StdlibExtractor struct{}
 
 // Extract walks all packages and extracts stdlib route registrations.
+//
+// Every function is walked, since a ServeMux carries no prefix for a call site
+// to contribute. What a call site can contribute is the path and the handler
+// themselves, when a house wrapper takes them as parameters — so calls to a
+// function that registers routes are expanded with its arguments bound.
 func (e *StdlibExtractor) Extract(pkgs []*packages.Package) ([]RawRoute, error) {
-	var routes []RawRoute
+	wrappers := indexStdlibWrappers(pkgs)
 
+	var routes []RawRoute
 	for _, pkg := range pkgs {
 		if !isStdlibHTTPPackage(pkg) {
 			continue
@@ -24,10 +30,12 @@ func (e *StdlibExtractor) Extract(pkgs []*packages.Package) ([]RawRoute, error) 
 		for _, file := range pkg.Syntax {
 			fpath := pkg.Fset.Position(file.Pos()).Filename
 			w := &stdlibWalker{
-				fset:    pkg.Fset,
-				astFile: file,
-				file:    fpath,
-				info:    pkg.TypesInfo,
+				fset:     pkg.Fset,
+				astFile:  file,
+				file:     fpath,
+				info:     pkg.TypesInfo,
+				wrappers: wrappers,
+				stack:    make(map[*ast.FuncDecl]bool),
 			}
 			for _, decl := range file.Decls {
 				fn, ok := decl.(*ast.FuncDecl)
@@ -47,6 +55,71 @@ func (e *StdlibExtractor) Extract(pkgs []*packages.Package) ([]RawRoute, error) 
 	return routes, nil
 }
 
+// indexStdlibWrappers records every function that registers a route on a
+// ServeMux, keyed by the object a call site resolves to.
+func indexStdlibWrappers(pkgs []*packages.Package) map[types.Object]*routerHelper {
+	index := make(map[types.Object]*routerHelper)
+	for _, pkg := range pkgs {
+		if !isStdlibHTTPPackage(pkg) || pkg.TypesInfo == nil {
+			continue
+		}
+		for _, file := range pkg.Syntax {
+			for _, decl := range file.Decls {
+				fn, ok := decl.(*ast.FuncDecl)
+				if !ok || fn.Body == nil || fn.Type == nil {
+					continue
+				}
+				if fn.Type.Params == nil || len(fn.Type.Params.List) == 0 {
+					continue // nothing a call site could bind
+				}
+				if strings.HasPrefix(fn.Name.Name, "Test") || strings.HasPrefix(fn.Name.Name, "Example") {
+					continue
+				}
+				if !wrapsStdlibRoutes(fn, pkg.TypesInfo) {
+					continue
+				}
+				if obj, ok := pkg.TypesInfo.Defs[fn.Name]; ok && obj != nil {
+					index[obj] = &routerHelper{decl: fn, pkg: pkg, astFile: file, paramIdx: -1}
+				}
+			}
+		}
+	}
+	return index
+}
+
+// wrapsStdlibRoutes reports whether a function registers a route on a ServeMux
+// using a pattern it was handed — the shape of a house router wrapper.
+//
+// A function whose patterns are literals is not a wrapper: it resolves where it
+// is declared, and every function is walked there, so expanding its call sites
+// too would emit its routes twice.
+func wrapsStdlibRoutes(fn *ast.FuncDecl, info *types.Info) bool {
+	probe := &stdlibWalker{info: info}
+	var found bool
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		if found {
+			return false
+		}
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || len(call.Args) < 2 {
+			return true
+		}
+		if sel.Sel.Name != "HandleFunc" && sel.Sel.Name != "Handle" {
+			return true
+		}
+		if probe.isMuxRegistration(sel) && paramIdent(fn, info, call.Args[0]) {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
+}
+
 // isStdlibHTTPPackage returns true if the package imports net/http.
 func isStdlibHTTPPackage(pkg *packages.Package) bool {
 	for imp := range pkg.Imports {
@@ -64,6 +137,12 @@ type stdlibWalker struct {
 	file    string
 	info    *types.Info
 	routes  []RawRoute
+
+	// House-router wrapper expansion.
+	wrappers map[types.Object]*routerHelper
+	bind     *paramBinding
+	depth    int
+	stack    map[*ast.FuncDecl]bool
 }
 
 // walkBlock walks a list of statements looking for stdlib route registrations.
@@ -78,6 +157,7 @@ func (w *stdlibWalker) walkBlock(stmts []ast.Stmt, parentMW []ast.Expr) {
 				continue
 			}
 			w.processCall(call, scopeMW)
+			w.expandWrapperCall(call, scopeMW)
 		default:
 			// Routes are commonly mounted conditionally (e.g.
 			// `if dep != nil { mux.Handle(...) }`); descend into nested blocks.
@@ -147,7 +227,7 @@ func (w *stdlibWalker) addRoute(call *ast.CallExpr, middlewares []ast.Expr) {
 	if hasIgnoreDirective(w.fset, w.astFile, call.Pos(), call.End()) {
 		return
 	}
-	pattern := stringLitValue(call.Args[0])
+	pattern := boundString(w.info, w.bind, call.Args[0])
 	if pattern == "" {
 		return
 	}
@@ -158,19 +238,24 @@ func (w *stdlibWalker) addRoute(call *ast.CallExpr, middlewares []ast.Expr) {
 	// could be considered but stdlib only takes (pattern, handler).
 	handler := call.Args[len(call.Args)-1]
 
+	// A wrapper takes the handler as a parameter, so the expression to record
+	// — and the type information it belongs to — comes from the call site.
+	handler, handlerInfo, substituted := boundExpr(w.info, w.bind, handler)
+
 	// Unwrap middleware wrapping: authMiddleware(handler) → collect authMiddleware, use inner handler.
 	handler, wrappedMW := unwrapMiddleware(handler)
 	allMW := concatExprs(middlewares, wrappedMW)
 
 	pos := w.fset.Position(call.Pos())
-	w.routes = append(w.routes, RawRoute{
+	route := RawRoute{
 		Method:      method,
 		Path:        path,
 		HandlerExpr: handler,
 		Middlewares: middlewareRefs(allMW, w.info),
 		File:        w.file,
 		Line:        pos.Line,
-	})
+	}
+	w.routes = append(w.routes, applyBinding(route, w.bind, handlerInfo, substituted))
 }
 
 // parseStdlibPattern parses a Go 1.22+ ServeMux pattern string.
@@ -241,4 +326,46 @@ func unwrapMiddleware(expr ast.Expr) (ast.Expr, []ast.Expr) {
 		expr = call.Args[0]
 	}
 	return expr, middlewares
+}
+
+// expandWrapperCall expands a call to a house router wrapper — a function that
+// registers a route from values it is handed — by walking its body with the
+// call's arguments bound to its parameters.
+func (w *stdlibWalker) expandWrapperCall(call *ast.CallExpr, scopeMW []ast.Expr) {
+	if w.wrappers == nil || w.info == nil {
+		return
+	}
+	obj := identObject(w.info, call.Fun)
+	if obj == nil {
+		return
+	}
+	h := w.wrappers[obj]
+	if !canWrap(h, call) {
+		return
+	}
+	if w.depth >= maxHelperDepth || w.stack[h.decl] {
+		return // recursion, or nesting deep enough to be a mistake
+	}
+	bind := bindCallArgs(h, call, w.fset, w.info)
+	if bind == nil {
+		return
+	}
+
+	inner := &stdlibWalker{
+		fset:     h.pkg.Fset,
+		astFile:  h.astFile,
+		file:     h.pkg.Fset.Position(h.astFile.Pos()).Filename,
+		info:     h.pkg.TypesInfo,
+		wrappers: w.wrappers,
+		bind:     bind,
+		depth:    w.depth + 1,
+		stack:    make(map[*ast.FuncDecl]bool),
+	}
+	for decl := range w.stack {
+		inner.stack[decl] = true
+	}
+	inner.stack[h.decl] = true
+	inner.walkBlock(h.decl.Body.List, scopeMW)
+
+	w.routes = append(w.routes, inner.routes...)
 }

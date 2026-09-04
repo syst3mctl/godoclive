@@ -21,6 +21,10 @@ type routerHelper struct {
 	pkg      *packages.Package
 	astFile  *ast.File
 	paramIdx int
+	// wraps marks a house router wrapper: a function that registers a route
+	// whose path it takes as a parameter, so its call sites must be expanded
+	// with their arguments bound for the route to resolve at all.
+	wraps bool
 }
 
 // routerIndex maps function objects to their registration record and tracks
@@ -48,6 +52,10 @@ type routerIndexSpec struct {
 	registers func(*ast.FuncDecl, *types.Info) bool
 	// isRouter reports whether a type is the framework's router type.
 	isRouter func(types.Type) bool
+	// wrapsPath reports whether a function registers a route whose path it was
+	// handed — a house router wrapper. Optional; a framework that leaves it nil
+	// simply gets no wrapper expansion.
+	wrapsPath func(*ast.FuncDecl, *types.Info) bool
 }
 
 // buildRouterIndex finds every function (including methods) that takes part in
@@ -96,7 +104,7 @@ func buildRouterIndex(pkgs []*packages.Package, spec routerIndexSpec) *routerInd
 		var added bool
 		for _, c := range pending {
 			info := c.pkg.TypesInfo
-			if !spec.registers(c.fn, info) && !handsRouterToRegistration(c.fn, info, idx, spec.isRouter) {
+			if !spec.registers(c.fn, info) && !feedsRegistration(c.fn, info, idx, spec.isRouter) {
 				remaining = append(remaining, c)
 				continue
 			}
@@ -105,6 +113,9 @@ func buildRouterIndex(pkgs []*packages.Package, spec routerIndexSpec) *routerInd
 				pkg:      c.pkg,
 				astFile:  c.astFile,
 				paramIdx: routerParam(c.fn, info, spec.isRouter),
+			}
+			if spec.wrapsPath != nil {
+				h.wraps = spec.wrapsPath(c.fn, info)
 			}
 			idx.ordered = append(idx.ordered, h)
 			if obj, ok := info.Defs[c.fn.Name]; ok && obj != nil {
@@ -133,10 +144,15 @@ func (idx *routerIndex) lookup(info *types.Info, expr ast.Expr) *routerHelper {
 	return idx.byObj[obj]
 }
 
-// handsRouterToRegistration reports whether fn calls an already-indexed
-// registration function, passing a router in the parameter position that
-// function registers on.
-func handsRouterToRegistration(fn *ast.FuncDecl, info *types.Info, idx *routerIndex, isRouter func(types.Type) bool) bool {
+// feedsRegistration reports whether fn takes part in route setup by calling an
+// already-indexed function.
+//
+// Two shapes count. The first hands a router to a function that registers on
+// it — a main() whose whole routing body is routes.Register(r). The second
+// calls a house router wrapper, handing it the path and handler it registers;
+// such a caller names no router at all, and without this is invisible, which
+// leaves the wrapper with no call site and the service with no routes.
+func feedsRegistration(fn *ast.FuncDecl, info *types.Info, idx *routerIndex, isRouter func(types.Type) bool) bool {
 	if info == nil || len(idx.byObj) == 0 {
 		return false
 	}
@@ -150,7 +166,14 @@ func handsRouterToRegistration(fn *ast.FuncDecl, info *types.Info, idx *routerIn
 			return true
 		}
 		h := idx.lookup(info, call.Fun)
-		if h == nil || h.paramIdx < 0 || h.paramIdx >= len(call.Args) {
+		if h == nil {
+			return true
+		}
+		if h.wraps && canWrap(h, call) {
+			found = true
+			return false
+		}
+		if h.paramIdx < 0 || h.paramIdx >= len(call.Args) {
 			return true
 		}
 		if isRouter(info.TypeOf(call.Args[h.paramIdx])) {

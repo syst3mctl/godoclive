@@ -121,12 +121,13 @@ func (c *converter) convertEndpoint(ep model.EndpointDef) *Operation {
 	op := &Operation{
 		OperationID: toOperationID(ep.Method, ep.Path),
 		Summary:     ep.Summary,
+		Description: ep.Description,
 		Tags:        ep.Tags,
 		Deprecated:  ep.Deprecated,
 		Responses:   make(map[string]*Response),
 	}
 
-	// Parameters: path + query + headers.
+	// Parameters: path + query + headers + cookies.
 	for _, p := range ep.Request.PathParams {
 		op.Parameters = append(op.Parameters, convertParam(p))
 	}
@@ -136,20 +137,33 @@ func (c *converter) convertEndpoint(ep model.EndpointDef) *Operation {
 	for _, p := range ep.Request.Headers {
 		op.Parameters = append(op.Parameters, convertParam(p))
 	}
+	for _, p := range ep.Request.Cookies {
+		op.Parameters = append(op.Parameters, convertParam(p))
+	}
 
 	// Request body.
 	if ep.Request.Body != nil {
 		op.RequestBody = c.convertRequestBody(ep.Request)
 	}
 
-	// Responses.
+	// Responses. A handler may answer one status with more than one payload —
+	// a full record, or a trimmed one when the caller asks for a summary — and
+	// OpenAPI has one response object per status, so the alternatives are
+	// merged into it rather than overwriting each other.
 	if len(ep.Responses) == 0 {
 		op.Responses["200"] = &Response{Description: "Successful response"}
 	} else {
+		grouped := make(map[string][]model.ResponseDef)
+		var order []string
 		for _, r := range ep.Responses {
-			resp := c.convertResponse(r)
 			code := fmt.Sprintf("%d", r.StatusCode)
-			op.Responses[code] = resp
+			if _, seen := grouped[code]; !seen {
+				order = append(order, code)
+			}
+			grouped[code] = append(grouped[code], r)
+		}
+		for _, code := range order {
+			op.Responses[code] = c.convertResponses(grouped[code])
 		}
 	}
 
@@ -207,6 +221,74 @@ func mediaTypes(contentType string) []string {
 }
 
 // convertResponse converts a ResponseDef to an OpenAPI Response.
+// convertResponses converts every response recorded for one status into a
+// single OpenAPI response object. Alternative payloads under the same content
+// type become a oneOf, which is how a schema says "one of these shapes".
+func (c *converter) convertResponses(group []model.ResponseDef) *Response {
+	if len(group) == 1 {
+		return c.convertResponse(group[0])
+	}
+
+	resp := &Response{
+		Description: coalesce(group[0].Description, defaultStatusDescription(group[0].StatusCode)),
+	}
+
+	// Content type → the alternative schemas documented under it, in the order
+	// they were found, with duplicates dropped.
+	var mediaOrder []string
+	schemas := make(map[string][]*Schema)
+	seen := make(map[string]bool)
+
+	for _, r := range group {
+		if r.Body == nil {
+			continue
+		}
+		schema := c.typeDefToSchema(r.Body)
+		if schema == nil {
+			continue
+		}
+		for _, ct := range mediaTypes(r.ContentType) {
+			key := ct + "|" + schemaKey(schema)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			if _, ok := schemas[ct]; !ok {
+				mediaOrder = append(mediaOrder, ct)
+			}
+			schemas[ct] = append(schemas[ct], schema)
+		}
+	}
+
+	if len(mediaOrder) == 0 {
+		return resp
+	}
+
+	resp.Content = make(map[string]*MediaType, len(mediaOrder))
+	for _, ct := range mediaOrder {
+		alts := schemas[ct]
+		if len(alts) == 1 {
+			resp.Content[ct] = &MediaType{Schema: alts[0]}
+			continue
+		}
+		resp.Content[ct] = &MediaType{Schema: &Schema{OneOf: alts}}
+	}
+	return resp
+}
+
+// schemaKey identifies a schema well enough to drop a repeat of it. A named
+// type is a $ref, which is already its identity; anything else is compared on
+// the fields that shape it.
+func schemaKey(s *Schema) string {
+	if s == nil {
+		return ""
+	}
+	if s.Ref != "" {
+		return s.Ref
+	}
+	return s.Type + "/" + s.Format + "/" + schemaKey(s.Items)
+}
+
 func (c *converter) convertResponse(r model.ResponseDef) *Response {
 	resp := &Response{
 		Description: coalesce(r.Description, defaultStatusDescription(r.StatusCode)),
@@ -247,7 +329,11 @@ func (c *converter) typeDefToSchema(td *model.TypeDef) *Schema {
 		}
 		return s
 	case model.KindPrimitive:
-		return primitiveTypeToSchema(td.Name)
+		s := primitiveTypeToSchema(td.Name)
+		if td.Format != "" {
+			s.Format = td.Format
+		}
+		return s
 	case model.KindInterface:
 		return &Schema{Type: "object"}
 	default:
@@ -326,6 +412,9 @@ func (c *converter) populateStructFields(schema *Schema, td *model.TypeDef) {
 		if f.Example != nil {
 			fieldSchema.Example = f.Example
 		}
+		// The validator rules on the field are enforced at runtime; a schema
+		// without them advertises an API more permissive than the one running.
+		fieldSchema.applyConstraints(f.Constraints)
 
 		schema.Properties[jsonName] = fieldSchema
 
