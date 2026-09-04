@@ -270,7 +270,7 @@ func (w *fiberWalker) processCall(call *ast.CallExpr, prefix string, scopeMW *[]
 // Fiber routes are variadic: app.Get(path, mw1, mw2, handler).
 // The handler is always the last arg; preceding args are inline middlewares.
 func (w *fiberWalker) addRoute(call *ast.CallExpr, prefix string, middlewares []ast.Expr, method string) {
-	if hasIgnoreDirective(w.fset, w.astFile, call.Pos()) {
+	if hasIgnoreDirective(w.fset, w.astFile, call.Pos(), call.End()) {
 		return
 	}
 	patternArg := stringLitValue(call.Args[0])

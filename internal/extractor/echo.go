@@ -258,7 +258,7 @@ func (w *echoWalker) processCall(call *ast.CallExpr, prefix string, scopeMW *[]a
 
 // addRoute records a route from an Echo registration call.
 func (w *echoWalker) addRoute(call *ast.CallExpr, prefix string, middlewares []ast.Expr, method string) {
-	if hasIgnoreDirective(w.fset, w.astFile, call.Pos()) {
+	if hasIgnoreDirective(w.fset, w.astFile, call.Pos(), call.End()) {
 		return
 	}
 	patternArg := stringLitValue(call.Args[0])

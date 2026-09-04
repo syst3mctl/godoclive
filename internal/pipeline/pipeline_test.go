@@ -558,7 +558,9 @@ func TestPipeline_ChiNested(t *testing.T) {
 		t.Fatalf("RunPipeline: %v", err)
 	}
 
-	// Core routes from nested Route/Group patterns (Mount is a known Phase 2 limitation).
+	// Nested Route/Group patterns, plus the targets of r.Mount("/admin",
+	// adminRouter()) — the factory is followed across functions, so its routes
+	// carry the mount prefix.
 	routes := []struct {
 		method string
 		path   string
@@ -569,24 +571,14 @@ func TestPipeline_ChiNested(t *testing.T) {
 		{"PUT", "/api/v1/users/{userID}"},
 		{"GET", "/api/v1/stats"},
 		{"DELETE", "/api/v1/cache"},
+		{"GET", "/admin/dashboard"},
+		{"POST", "/admin/settings"},
 	}
 
 	for _, r := range routes {
 		ep := findEndpoint(eps, r.method, r.path)
 		if ep == nil {
 			t.Errorf("missing endpoint %s %s", r.method, r.path)
-		}
-	}
-
-	// Mount targets (adminRouter()) are a known limitation — log but don't fail.
-	mountRoutes := []struct{ method, path string }{
-		{"GET", "/admin/dashboard"},
-		{"POST", "/admin/settings"},
-	}
-	for _, r := range mountRoutes {
-		ep := findEndpoint(eps, r.method, r.path)
-		if ep == nil {
-			t.Logf("KNOWN LIMITATION: %s %s not found — Mount cross-function resolution (Phase 2)", r.method, r.path)
 		}
 	}
 }
@@ -623,14 +615,18 @@ func TestPipeline_ChiNested_MountedSubrouter(t *testing.T) {
 		t.Fatalf("RunPipeline: %v", err)
 	}
 
-	// Mount at /admin — sub-router has /dashboard and /settings.
-	// NOTE: Mount cross-function resolution is a known Phase 2 limitation.
-	ep := findEndpoint(eps, "GET", "/admin/dashboard")
-	ep2 := findEndpoint(eps, "POST", "/admin/settings")
-
-	if ep == nil || ep2 == nil {
-		t.Log("KNOWN LIMITATION: Mount cross-function resolution not yet implemented (Phase 2)")
-		t.SkipNow()
+	// Mount at /admin — the sub-router adminRouter() builds has /dashboard and
+	// /settings, and neither may appear at its unprefixed path.
+	if ep := findEndpoint(eps, "GET", "/admin/dashboard"); ep == nil {
+		t.Error("GET /admin/dashboard not found — Mount cross-function resolution broken")
+	}
+	if ep := findEndpoint(eps, "POST", "/admin/settings"); ep == nil {
+		t.Error("POST /admin/settings not found — Mount cross-function resolution broken")
+	}
+	for _, ep := range eps {
+		if ep.Path == "/dashboard" || ep.Path == "/settings" {
+			t.Errorf("%s %s emitted without its /admin mount prefix", ep.Method, ep.Path)
+		}
 	}
 }
 
@@ -1118,7 +1114,22 @@ func TestPipeline_AccuracyReport(t *testing.T) {
 				{"PUT", "/api/v1/users/{userID}"},
 				{"GET", "/api/v1/stats"},
 				{"DELETE", "/api/v1/cache"},
-				// Mount targets excluded — known Phase 2 limitation.
+				// Mount target followed across functions: adminRouter() is
+				// mounted at /admin, so its routes carry that prefix.
+				{"GET", "/admin/dashboard"},
+				{"POST", "/admin/settings"},
+			},
+		},
+		{
+			name: "chi-multipkg",
+			expectedRoutes: []struct{ method, path string }{
+				{"GET", "/health"},
+				{"GET", "/api/v1/payments"},
+				{"POST", "/api/v1/payments"},
+				{"GET", "/api/v1/payments/{paymentID}"},
+				{"GET", "/admin/dashboard"},
+				{"GET", "/status"},
+				{"GET", "/embedded"},
 			},
 		},
 		{
@@ -1754,7 +1765,7 @@ func TestFiberBasic_GroupAuth(t *testing.T) {
 func TestPipeline_AllProjects_Build(t *testing.T) {
 	// Smoke test: every testdata project runs through the pipeline without error.
 	projects := []string{
-		"chi-basic", "chi-nested", "chi-inline", "chi-helpers",
+		"chi-basic", "chi-nested", "chi-inline", "chi-helpers", "chi-multipkg",
 		"gin-basic", "gin-groups", "gin-helpers",
 		"multipart", "mixed-auth", "gin-bind-query", "gorilla-basic", "echo-basic", "fiber-basic",
 	}

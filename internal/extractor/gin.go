@@ -508,7 +508,7 @@ func (w *ginWalker) isGroup(name string) bool {
 
 // addRoute records a discovered gin route with path normalization.
 func (w *ginWalker) addRoute(method string, group *ginGroup, call *ast.CallExpr) {
-	if hasIgnoreDirective(w.fset, w.astFile, call.Pos()) {
+	if hasIgnoreDirective(w.fset, w.astFile, call.Pos(), call.End()) {
 		return
 	}
 	notes := w.notes

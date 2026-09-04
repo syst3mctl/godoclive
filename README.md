@@ -97,7 +97,7 @@ Hide individual endpoints directly from the sidebar — useful when you want to 
 
 | Router | Status | Features |
 |--------|--------|----------|
-| **chi** (`go-chi/chi/v5`) | Done | Route, Group, Mount, inline handlers |
+| **chi** (`go-chi/chi/v5`) | Done | Route, Group, Mount, inline handlers, cross-package registration functions |
 | **gin** (`gin-gonic/gin`) | Done | Groups, Use chains, ShouldBindJSON |
 | **net/http** (Go 1.22+ stdlib) | Done | `"METHOD /path"` patterns, `r.PathValue()`, `http.Handler` |
 | **gorilla/mux** (`gorilla/mux`) | Done | `HandleFunc().Methods()`, `PathPrefix().Subrouter()`, `mux.Vars()`, regex params |
@@ -294,7 +294,7 @@ openapi:
 
 1. **Load** — Uses `go/packages` to load and type-check your Go source code
 2. **Detect** — Identifies the router framework (chi, gin, gorilla/mux, echo, fiber, or stdlib) from imports
-3. **Extract** — Walks `main()` and `init()` AST to find route registrations
+3. **Extract** — Walks the AST to find route registrations, wherever they live: `main()`, a `routes` package, a method on a server struct, or a sub-router factory followed through its mount site
 4. **Resolve** — Resolves handler expressions to function declarations
 5. **Contract** — Extracts path params, query params, headers, body, and responses from handler ASTs
 6. **Map** — Converts `types.Type` into recursive `TypeDef` with JSON tags, examples, and field metadata

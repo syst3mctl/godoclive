@@ -218,7 +218,7 @@ func (w *gorillaWalker) processCall(call *ast.CallExpr, prefix string, scopeMW *
 
 // addRoute records a route without .Methods() chain (ANY method).
 func (w *gorillaWalker) addRoute(call *ast.CallExpr, prefix string, middlewares []ast.Expr) {
-	if hasIgnoreDirective(w.fset, w.astFile, call.Pos()) {
+	if hasIgnoreDirective(w.fset, w.astFile, call.Pos(), call.End()) {
 		return
 	}
 	patternArg := stringLitValue(call.Args[0])
@@ -238,7 +238,7 @@ func (w *gorillaWalker) addRoute(call *ast.CallExpr, prefix string, middlewares 
 
 // addChainedRoute records routes from a HandleFunc/Handle call chained with .Methods().
 func (w *gorillaWalker) addChainedRoute(call *ast.CallExpr, prefix string, middlewares []ast.Expr, methods []string) {
-	if hasIgnoreDirective(w.fset, w.astFile, call.Pos()) {
+	if hasIgnoreDirective(w.fset, w.astFile, call.Pos(), call.End()) {
 		return
 	}
 	sel, ok := call.Fun.(*ast.SelectorExpr)
