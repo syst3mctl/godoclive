@@ -54,15 +54,83 @@ GoDoc Live has no drift problem — it reads the source of truth directly.
 
 | Feature | Description |
 |---------|-------------|
-| **Routes** | HTTP methods and path patterns from router registrations |
+| **Routes** | HTTP methods and path patterns from router registrations, across every framework a project uses |
 | **Path Params** | Type inference from name heuristics (`{id}` → uuid, `{page}` → integer) and handler body analysis |
 | **Query Params** | Required/optional detection, default values from `DefaultQuery` |
 | **Request Body** | Struct extraction from `json.Decode` / `c.ShouldBindJSON` with full field metadata |
 | **Responses** | Status codes paired with response body types via branch-aware analysis |
 | **File Uploads** | Multipart detection from `r.FormFile` / `c.FormFile` |
 | **Helper Tracing** | One-level tracing through `respond()`, `writeJSON()`, `sendError()` wrappers |
+| **Cookies** | `r.Cookie` / `c.Cookie` / `c.Cookies` → OpenAPI `in: cookie` parameters |
 | **Auth Detection** | JWT bearer, API key, and basic auth from middleware body scanning |
-| **Auto Naming** | Summaries and tags inferred from handler names (`GetUserByID` → "Get User By ID") |
+| **Validation Rules** | `binding` / `validate` tags → `minLength`, `maximum`, `pattern`, `format`, `enum` |
+| **Enums** | Constants declared with a named string or integer type become the schema's `enum` |
+| **Doc Comments** | The handler's own comment becomes the summary and description |
+| **Auto Naming** | Tags, and summaries for handlers with no doc comment (`GetUserByID` → "Get User By ID") |
+
+## Documenting an Endpoint
+
+The comment already above the handler is the documentation. Its first sentence
+becomes the summary and the rest becomes the description; the leading
+identifier is dropped, because repeating the function name next to the method
+and path reads as a stutter.
+
+```go
+// ListArticles returns the articles visible to the caller.
+//
+// The session cookie decides which drafts are included; without one only
+// published articles are returned.
+func ListArticles(w http.ResponseWriter, r *http.Request) {
+```
+
+> Summary: "Returns the articles visible to the caller."
+> Description: "The session cookie decides which drafts are included; without one only published articles are returned."
+
+A handler with no comment falls back to its name, as before. `Deprecated:`
+paragraphs are recorded as the `deprecated` flag rather than shown as prose.
+
+## Validation Rules and Enums
+
+Validator rules are enforced at runtime, so a schema that omits them advertises
+an API more permissive than the one actually running. Both spellings are read —
+gin's `binding` and go-playground's `validate` — and each rule is applied to the
+facet the field's type makes it mean: `min=3` bounds a string's length, an
+integer's value, and a slice's item count.
+
+```go
+type CreateArticleRequest struct {
+    Title      string   `json:"title"       validate:"required,min=3,max=120"`
+    Email      string   `json:"email"       validate:"required,email"`
+    Visibility string   `json:"visibility"  validate:"required,oneof=public unlisted private"`
+    WordCount  int      `json:"word_count"  validate:"gte=300,lte=5000"`
+    Tags       []string `json:"tags"        validate:"required,min=1,max=5"`
+    Status     Status   `json:"status"`
+}
+```
+
+| Rule | Emitted as |
+|------|-----------|
+| `min` / `max` | `minLength`/`maxLength`, `minimum`/`maximum`, or `minItems`/`maxItems` |
+| `gte` / `lte` | `minimum` / `maximum` |
+| `gt` / `lt` | `exclusiveMinimum` / `exclusiveMaximum` |
+| `len` | Both ends of the matching pair |
+| `oneof` | `enum` |
+| `email`, `uuid`, `url`, `ip`, `datetime`, … | `format` |
+| `alpha`, `alphanum`, `numeric`, `lowercase`, … | `pattern` |
+
+`Status` above needs no rule at all. A named type over a string or an integer
+with a const block is how Go spells an enumeration, and those constants become
+the schema's `enum` in declaration order — with the first of them used as the
+example, so nothing suggests sending a value the server will reject.
+
+```go
+type Status string
+
+const (
+    StatusDraft     Status = "draft"
+    StatusPublished Status = "published"
+)
+```
 
 ## UI Features
 
@@ -103,6 +171,12 @@ Hide individual endpoints directly from the sidebar — useful when you want to 
 | **gorilla/mux** (`gorilla/mux`) | Done | `HandleFunc().Methods()`, `PathPrefix().Subrouter()`, `mux.Vars()`, regex params, cross-package registration functions |
 | **echo** (`labstack/echo/v4`) | Done | Groups, Use chains, `c.Bind()`, `c.QueryParam()`, `c.JSON()`, `c.NoContent()`, cross-package registration functions |
 | **fiber** (`gofiber/fiber/v2`) | Done | Groups, Use chains, `c.BodyParser()`, `c.Query()`, `c.Params()`, `c.Status().JSON()`, `c.SendStatus()`, cross-package registration functions |
+
+A service is not obliged to pick one. Every framework a project registers
+routes on is analyzed and the results are merged, so a gin API mounted beside a
+stdlib `ServeMux` for health and metrics — or a chi tree that still carries a
+legacy gorilla subtree — is documented in full. Each endpoint records which
+framework registered it.
 
 ## CLI Reference
 
@@ -247,6 +321,7 @@ exclude:
 overrides:
   - path: "POST /users"
     summary: "Register a new user account"
+    description: "Creates an account and sends a confirmation email."
     tags: ["accounts"]
     responses:
       - status: 409
@@ -302,6 +377,47 @@ openapi:
 8. **Generate** — Transforms endpoint contracts into an interactive HTML documentation site
 
 > All analysis uses `go/ast` and `go/types` — **no runtime reflection, no annotations, no code generation**.
+
+## GitHub Action
+
+Generate the spec and the docs in CI, gate a pull request on how much of the
+API the analyzer could resolve, and fail it on a breaking change.
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0          # needed by fail-on-breaking
+
+- uses: syst3mctl/godoclive@v1
+  with:
+    packages: ./...
+    openapi: openapi.json
+    docs: site
+    min-coverage: "95"
+    fail-on-breaking: "true"
+```
+
+The breaking-change check generates the base branch's spec **from the base
+branch's own source** rather than reading a spec committed to the repository. A
+committed spec can itself be stale, and comparing against a stale one reports
+the drift as an API change. The comparison runs through
+[oasdiff](https://github.com/oasdiff/oasdiff); findings are annotated inline on
+the pull request and summarized in the run.
+
+| Input | Default | Description |
+|-------|---------|-------------|
+| `packages` | `./...` | Package pattern to analyze |
+| `working-directory` | `.` | Module root of the service |
+| `version` | `latest` | godoclive version to install — pin it |
+| `go-version` | from `go.mod` | Toolchain to type-check against |
+| `openapi` | `openapi.json` | Where to write the spec; empty to skip |
+| `docs` | — | Where to write the HTML site; empty to skip |
+| `docs-format` | `folder` | `folder` or `single` |
+| `min-coverage` | — | Fail below this resolved-endpoint percentage |
+| `fail-on-breaking` | `false` | Fail on a breaking change against the base ref |
+| `base-ref` | PR base branch | Ref to compare against |
+
+Outputs: `coverage`, `endpoints`, `unresolved`, `spec`, `breaking`.
 
 ## Programmatic API
 
@@ -386,7 +502,8 @@ Single-file mode writes more memory (≈10× more per run) because all CSS, JS, 
 | **2b** | echo | Done |
 | **2c** | fiber | Done |
 | **2d** | Environment URL switcher, client-side route visibility toggle, `//godoclive:ignore` directive | Done |
-| **3** | VS Code extension, GitHub Action integration | Planned |
+| **3** | GitHub Action with coverage and breaking-change gates | Done |
+| **3b** | VS Code extension | Planned |
 | **4** | Multi-service gateway view, API version diff | Planned |
 
 ## Contributing

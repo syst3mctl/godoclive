@@ -46,6 +46,45 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: dicki/godoclive
 
+  # The published action is plumbing — six shell steps and a composite wrapper
+  # that no unit test reaches. Running it against a fixture service on every PR
+  # is what catches a broken input reference or a shell quoting slip before a
+  # user's pipeline does.
+  action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Build the action's binary from this checkout
+        run: |
+          go build -o "$(go env GOPATH)/bin/godoclive" ./cmd/godoclive
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Run the action against a fixture service
+        id: docs
+        uses: ./
+        with:
+          working-directory: testdata/gin-realworld
+          version: skip-install
+          openapi: openapi.json
+          docs: site
+          min-coverage: "50"
+
+      - name: Check the action produced what it reported
+        run: |
+          set -euo pipefail
+          test -f testdata/gin-realworld/openapi.json
+          test -f testdata/gin-realworld/site/index.html
+          echo "endpoints=${{ steps.docs.outputs.endpoints }} coverage=${{ steps.docs.outputs.coverage }}%"
+          test "${{ steps.docs.outputs.endpoints }}" -gt 0
+
   lint:
     runs-on: ubuntu-latest
     steps:

@@ -45,7 +45,14 @@ func mapType(t types.Type, pkg *packages.Package, visited map[*types.Named]bool)
 	case *types.Map:
 		return model.TypeDef{Kind: model.KindMap, Name: t.String()}
 	case *types.Basic:
-		return model.TypeDef{Kind: model.KindPrimitive, Name: u.Name()}
+		def := model.TypeDef{Kind: model.KindPrimitive, Name: u.Name()}
+		// A named type over a string or an integer is how Go spells an
+		// enumeration: type Status string, then a const block of the values it
+		// may take. Those constants are the schema's enum.
+		if named, ok := t.(*types.Named); ok {
+			def.Enum = namedConstValues(named)
+		}
+		return def
 	case *types.Interface:
 		return model.TypeDef{Kind: model.KindInterface, Name: "interface{}"}
 	default:

@@ -121,12 +121,13 @@ func (c *converter) convertEndpoint(ep model.EndpointDef) *Operation {
 	op := &Operation{
 		OperationID: toOperationID(ep.Method, ep.Path),
 		Summary:     ep.Summary,
+		Description: ep.Description,
 		Tags:        ep.Tags,
 		Deprecated:  ep.Deprecated,
 		Responses:   make(map[string]*Response),
 	}
 
-	// Parameters: path + query + headers.
+	// Parameters: path + query + headers + cookies.
 	for _, p := range ep.Request.PathParams {
 		op.Parameters = append(op.Parameters, convertParam(p))
 	}
@@ -134,6 +135,9 @@ func (c *converter) convertEndpoint(ep model.EndpointDef) *Operation {
 		op.Parameters = append(op.Parameters, convertParam(p))
 	}
 	for _, p := range ep.Request.Headers {
+		op.Parameters = append(op.Parameters, convertParam(p))
+	}
+	for _, p := range ep.Request.Cookies {
 		op.Parameters = append(op.Parameters, convertParam(p))
 	}
 
@@ -326,6 +330,9 @@ func (c *converter) populateStructFields(schema *Schema, td *model.TypeDef) {
 		if f.Example != nil {
 			fieldSchema.Example = f.Example
 		}
+		// The validator rules on the field are enforced at runtime; a schema
+		// without them advertises an API more permissive than the one running.
+		fieldSchema.applyConstraints(f.Constraints)
 
 		schema.Properties[jsonName] = fieldSchema
 

@@ -856,6 +856,55 @@ input, textarea, select {
   margin-bottom: 4px;
 }
 
+/* Constraint chips in the schema table */
+.constraint-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  /* Bounded so a long enum wraps instead of stretching the column and
+     pushing the rest of the schema table off the card. */
+  max-width: 32ch;
+}
+
+.constraint-chip {
+  display: inline-block;
+  max-width: 30ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  padding: 1px 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  background: var(--bg-subtle, rgba(127, 127, 127, 0.06));
+}
+
+.constraint-none {
+  color: var(--text-tertiary, var(--text-secondary));
+}
+
+/* Card description — the body of the handler's doc comment */
+.card-description {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  margin-top: 8px;
+  margin-bottom: 4px;
+  max-width: 78ch;
+}
+
+.card-description p {
+  margin: 0 0 8px;
+}
+
+.card-description p:last-child {
+  margin-bottom: 0;
+}
+
 /* ============================================================
    Contract Sections (Section 10.5.2)
    ============================================================ */

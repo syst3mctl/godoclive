@@ -1,0 +1,209 @@
+name: GoDoc Live
+description: >-
+  Generate API documentation and an OpenAPI 3.1 spec from Go source, gate a
+  pull request on analysis coverage, and fail it on a breaking API change.
+author: syst3mctl
+branding:
+  icon: book-open
+  color: blue
+
+inputs:
+  packages:
+    description: Package pattern to analyze, e.g. "./..." or "./cmd/api/...".
+    required: false
+    default: ./...
+  working-directory:
+    description: Directory to run in — the module root of the service.
+    required: false
+    default: .
+  version:
+    description: >-
+      Version of godoclive to install, e.g. "v0.5.0". Defaults to the latest
+      release. Pin it so a new release cannot change a passing build. Set
+      "skip-install" to use a godoclive already on PATH.
+    required: false
+    default: latest
+  go-version:
+    description: >-
+      Go toolchain to install. Leave empty to use the go.mod of the analyzed
+      module, which is what the analyzer type-checks against.
+    required: false
+    default: ""
+  openapi:
+    description: Path to write the OpenAPI 3.1 spec to. Empty to skip.
+    required: false
+    default: openapi.json
+  docs:
+    description: Directory to write the HTML documentation site to. Empty to skip.
+    required: false
+    default: ""
+  docs-format:
+    description: 'Documentation output: "folder" or "single".'
+    required: false
+    default: folder
+  min-coverage:
+    description: >-
+      Fail when fewer than this percentage of endpoints are fully resolved.
+      Empty to report coverage without gating on it.
+    required: false
+    default: ""
+  fail-on-breaking:
+    description: >-
+      Compare the spec against the one the base ref's source produces and fail
+      on a breaking change. Needs a checkout with history — actions/checkout
+      with fetch-depth 0.
+    required: false
+    default: "false"
+  base-ref:
+    description: >-
+      Ref to compare against. Defaults to the pull request's base branch, or
+      the default branch on a push.
+    required: false
+    default: ""
+
+outputs:
+  coverage:
+    description: Percentage of endpoints fully resolved.
+    value: ${{ steps.validate.outputs.coverage }}
+  endpoints:
+    description: Number of endpoints found.
+    value: ${{ steps.validate.outputs.endpoints }}
+  unresolved:
+    description: Number of endpoints that are only partially resolved.
+    value: ${{ steps.validate.outputs.unresolved }}
+  spec:
+    description: Path to the generated OpenAPI spec, empty when none was asked for.
+    value: ${{ steps.spec.outputs.path }}
+  breaking:
+    description: Number of breaking changes found against the base ref.
+    value: ${{ steps.breaking.outputs.count }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ inputs.go-version }}
+        go-version-file: ${{ inputs.go-version == '' && format('{0}/go.mod', inputs.working-directory) || '' }}
+        cache: false
+
+    - name: Install godoclive
+      shell: bash
+      run: |
+        # "skip-install" lets a workflow put its own build on PATH first, which
+        # is how this repository tests the action against the current commit
+        # rather than against the last release.
+        if [ "${{ inputs.version }}" = "skip-install" ]; then
+          command -v godoclive
+          exit 0
+        fi
+        go install github.com/syst3mctl/godoclive/cmd/godoclive@${{ inputs.version }}
+
+    - name: Report analysis coverage
+      id: validate
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        godoclive validate --json "${{ inputs.packages }}" > /tmp/godoclive-validate.json
+        godoclive validate "${{ inputs.packages }}"
+
+        coverage=$(jq -r '.coverage' /tmp/godoclive-validate.json)
+        total=$(jq -r '.total' /tmp/godoclive-validate.json)
+        partial=$(jq -r '.partial' /tmp/godoclive-validate.json)
+        {
+          echo "coverage=$coverage"
+          echo "endpoints=$total"
+          echo "unresolved=$partial"
+        } >> "$GITHUB_OUTPUT"
+
+        {
+          echo "### GoDoc Live"
+          echo
+          echo "| Endpoints | Fully resolved | Coverage |"
+          echo "| --- | --- | --- |"
+          echo "| $total | $((total - partial)) | ${coverage}% |"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+        min="${{ inputs.min-coverage }}"
+        if [ -n "$min" ]; then
+          # Endpoints the analyzer could not fully resolve are documented with
+          # gaps. Gating on coverage keeps a refactor that hides routes from
+          # static analysis from quietly emptying the docs.
+          if awk "BEGIN { exit !($coverage < $min) }"; then
+            echo "::error::analysis coverage ${coverage}% is below the required ${min}%"
+            exit 1
+          fi
+        fi
+
+    - name: Generate OpenAPI spec
+      id: spec
+      if: inputs.openapi != ''
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        godoclive openapi --output "${{ inputs.openapi }}" "${{ inputs.packages }}"
+        echo "path=${{ inputs.working-directory }}/${{ inputs.openapi }}" >> "$GITHUB_OUTPUT"
+
+    - name: Generate documentation site
+      if: inputs.docs != ''
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        godoclive generate --output "${{ inputs.docs }}" --format "${{ inputs.docs-format }}" "${{ inputs.packages }}"
+
+    - name: Check for breaking API changes
+      id: breaking
+      if: inputs.fail-on-breaking == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        base="${{ inputs.base-ref }}"
+        if [ -z "$base" ]; then
+          base="${{ github.event.pull_request.base.ref }}"
+        fi
+        if [ -z "$base" ]; then
+          base="${{ github.event.repository.default_branch }}"
+        fi
+
+        if ! git rev-parse --verify --quiet "origin/$base" > /dev/null; then
+          git fetch --no-tags --depth=1 origin "$base"
+        fi
+
+        # The base spec is generated from the base ref's own source rather than
+        # read from a committed file. A spec checked into the repository can
+        # itself be out of date, and comparing against a stale one reports the
+        # drift as an API change.
+        worktree=$(mktemp -d)
+        git worktree add --detach "$worktree" "origin/$base" > /dev/null
+        trap 'git worktree remove --force "$worktree" > /dev/null 2>&1 || true' EXIT
+
+        go install github.com/oasdiff/oasdiff@latest
+
+        if ! (cd "$worktree/${{ inputs.working-directory }}" && godoclive openapi --output /tmp/godoclive-base.json "${{ inputs.packages }}"); then
+          echo "::notice::the base ref produced no spec — treating every endpoint as new"
+          echo "count=0" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        head_spec="${{ inputs.working-directory }}/${{ inputs.openapi }}"
+        if [ -z "${{ inputs.openapi }}" ]; then
+          head_spec=/tmp/godoclive-head.json
+          (cd "${{ inputs.working-directory }}" && godoclive openapi --output "$head_spec" "${{ inputs.packages }}")
+        fi
+
+        # Annotate the diff inline on the pull request, and put the same
+        # findings in the run summary.
+        oasdiff breaking /tmp/godoclive-base.json "$head_spec" --format githubactions || true
+        oasdiff breaking /tmp/godoclive-base.json "$head_spec" --format markup >> "$GITHUB_STEP_SUMMARY" || true
+
+        count=$(oasdiff breaking /tmp/godoclive-base.json "$head_spec" --format json | jq 'length')
+        echo "count=$count" >> "$GITHUB_OUTPUT"
+
+        # oasdiff reports findings on stdout but exits 0 unless told otherwise,
+        # so the gate has to ask for the non-zero status explicitly.
+        oasdiff breaking /tmp/godoclive-base.json "$head_spec" --fail-on ERR --format text

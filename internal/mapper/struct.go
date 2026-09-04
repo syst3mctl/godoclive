@@ -50,6 +50,23 @@ func mapStruct(named *types.Named, st *types.Struct, pkg *packages.Package, visi
 		}
 		fd.Type = mapType(field.Type(), pkg, visited)
 		fd.Example = generateExample(field.Type(), jsonName)
+		fd.Constraints = parseConstraints(tag, fd.Type)
+
+		// A field typed as a named string with declared constants is an
+		// enumeration whether or not anyone wrote a oneof rule for it.
+		if len(fd.Constraints.GetEnum()) == 0 && len(fd.Type.Enum) > 0 {
+			if fd.Constraints == nil {
+				fd.Constraints = &model.Constraints{}
+			}
+			fd.Constraints.Enum = fd.Type.Enum
+		}
+
+		// A field that may only hold one of a listed set is worst served by an
+		// example outside it: "active" under an enum of draft/published tells a
+		// reader to send a value the server will reject.
+		if enum := fd.Constraints.GetEnum(); len(enum) > 0 {
+			fd.Example = enumExample(enum[0], fd.Type)
+		}
 
 		// Embedded struct: inline fields (matches Go's JSON encoding behavior).
 		if field.Embedded() && fd.Type.Kind == model.KindStruct {

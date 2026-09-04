@@ -1,6 +1,12 @@
 // Package openapi provides OpenAPI 3.1.0 spec generation from analyzed endpoints.
 package openapi
 
+import (
+	"strconv"
+
+	"github.com/syst3mctl/godoclive/internal/model"
+)
+
 // Document is the root OpenAPI 3.1.0 document.
 type Document struct {
 	OpenAPI    string                `json:"openapi" yaml:"openapi"`
@@ -105,7 +111,7 @@ type Parameter struct {
 
 // RequestBody describes a single request body.
 type RequestBody struct {
-	Description string               `json:"description,omitempty" yaml:"description,omitempty"`
+	Description string                `json:"description,omitempty" yaml:"description,omitempty"`
 	Required    bool                  `json:"required,omitempty" yaml:"required,omitempty"`
 	Content     map[string]*MediaType `json:"content" yaml:"content"`
 }
@@ -134,14 +140,51 @@ type Schema struct {
 	Type                 string             `json:"type,omitempty" yaml:"type,omitempty"`
 	Format               string             `json:"format,omitempty" yaml:"format,omitempty"`
 	Description          string             `json:"description,omitempty" yaml:"description,omitempty"`
-	Properties           map[string]*Schema  `json:"properties,omitempty" yaml:"properties,omitempty"`
-	Required             []string            `json:"required,omitempty" yaml:"required,omitempty"`
-	Items                *Schema             `json:"items,omitempty" yaml:"items,omitempty"`
-	AdditionalProperties *Schema             `json:"additionalProperties,omitempty" yaml:"additionalProperties,omitempty"`
-	Nullable             bool                `json:"nullable,omitempty" yaml:"nullable,omitempty"`
-	Deprecated           bool                `json:"deprecated,omitempty" yaml:"deprecated,omitempty"`
-	Example              interface{}         `json:"example,omitempty" yaml:"example,omitempty"`
-	Enum                 []string            `json:"enum,omitempty" yaml:"enum,omitempty"`
+	Properties           map[string]*Schema `json:"properties,omitempty" yaml:"properties,omitempty"`
+	Required             []string           `json:"required,omitempty" yaml:"required,omitempty"`
+	Items                *Schema            `json:"items,omitempty" yaml:"items,omitempty"`
+	AdditionalProperties *Schema            `json:"additionalProperties,omitempty" yaml:"additionalProperties,omitempty"`
+	Nullable             bool               `json:"nullable,omitempty" yaml:"nullable,omitempty"`
+	Deprecated           bool               `json:"deprecated,omitempty" yaml:"deprecated,omitempty"`
+	Example              interface{}        `json:"example,omitempty" yaml:"example,omitempty"`
+	Enum                 []interface{}      `json:"enum,omitempty" yaml:"enum,omitempty"`
+	Pattern              string             `json:"pattern,omitempty" yaml:"pattern,omitempty"`
+	Minimum              *float64           `json:"minimum,omitempty" yaml:"minimum,omitempty"`
+	Maximum              *float64           `json:"maximum,omitempty" yaml:"maximum,omitempty"`
+	ExclusiveMinimum     *float64           `json:"exclusiveMinimum,omitempty" yaml:"exclusiveMinimum,omitempty"`
+	ExclusiveMaximum     *float64           `json:"exclusiveMaximum,omitempty" yaml:"exclusiveMaximum,omitempty"`
+	MinLength            *int               `json:"minLength,omitempty" yaml:"minLength,omitempty"`
+	MaxLength            *int               `json:"maxLength,omitempty" yaml:"maxLength,omitempty"`
+	MinItems             *int               `json:"minItems,omitempty" yaml:"minItems,omitempty"`
+	MaxItems             *int               `json:"maxItems,omitempty" yaml:"maxItems,omitempty"`
+}
+
+// applyConstraints copies declared validator constraints onto a schema.
+//
+// In OpenAPI 3.1 — JSON Schema 2020-12 — exclusiveMinimum and exclusiveMaximum
+// are the bounding numbers themselves, not booleans qualifying minimum and
+// maximum as they were in 3.0.
+func (s *Schema) applyConstraints(c *model.Constraints) {
+	if s == nil || c.IsZero() {
+		return
+	}
+	if len(c.Enum) > 0 {
+		s.Enum = enumValues(c.Enum, s.Type)
+	}
+	if c.Format != "" {
+		s.Format = c.Format
+	}
+	if c.Pattern != "" {
+		s.Pattern = c.Pattern
+	}
+	s.Minimum = c.Minimum
+	s.Maximum = c.Maximum
+	s.ExclusiveMinimum = c.ExclusiveMinimum
+	s.ExclusiveMaximum = c.ExclusiveMaximum
+	s.MinLength = c.MinLength
+	s.MaxLength = c.MaxLength
+	s.MinItems = c.MinItems
+	s.MaxItems = c.MaxItems
 }
 
 // SecurityRequirement maps security scheme names to required scopes.
@@ -161,4 +204,28 @@ type SecurityScheme struct {
 type Components struct {
 	Schemas         map[string]*Schema         `json:"schemas,omitempty" yaml:"schemas,omitempty"`
 	SecuritySchemes map[string]*SecurityScheme `json:"securitySchemes,omitempty" yaml:"securitySchemes,omitempty"`
+}
+
+// enumValues renders enum members in the schema's own type. The analyzer
+// carries them as strings — a constant's value and a oneof argument are both
+// source text — but "enum": ["1", "2"] under "type": "integer" is a schema
+// nothing can satisfy, so a numeric schema gets numbers.
+func enumValues(values []string, schemaType string) []interface{} {
+	out := make([]interface{}, 0, len(values))
+	for _, v := range values {
+		switch schemaType {
+		case "integer":
+			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+				out = append(out, n)
+				continue
+			}
+		case "number":
+			if n, err := strconv.ParseFloat(v, 64); err == nil {
+				out = append(out, n)
+				continue
+			}
+		}
+		out = append(out, v)
+	}
+	return out
 }

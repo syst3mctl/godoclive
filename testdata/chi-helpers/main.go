@@ -58,8 +58,9 @@ func DeleteUser(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// HealthCheck uses json.Encode with no preceding WriteHeader → implicit 200.
+// HealthCheck reports that the service is up.
 func HealthCheck(w http.ResponseWriter, r *http.Request) {
+	// Fixture: json.Encode with no preceding WriteHeader → implicit 200.
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
 }

@@ -14,13 +14,13 @@ import (
 
 // GeneratorConfig holds configuration for documentation generation.
 type GeneratorConfig struct {
-	OutputPath   string     // Output directory or file path (default: ./docs)
-	Format       string     // "folder" or "single" (default: "folder")
-	Title        string     // Project title displayed in docs
-	Version      string     // Project version displayed in docs
-	BaseURL      string     // Pre-fill base URL in Try It
-	Theme        string     // "light" or "dark" (default: "light")
-	Environments []ApiEnv   // Environment URL list for the switcher dropdown
+	OutputPath   string   // Output directory or file path (default: ./docs)
+	Format       string   // "folder" or "single" (default: "folder")
+	Title        string   // Project title displayed in docs
+	Version      string   // Project version displayed in docs
+	BaseURL      string   // Pre-fill base URL in Try It
+	Theme        string   // "light" or "dark" (default: "light")
+	Environments []ApiEnv // Environment URL list for the switcher dropdown
 }
 
 // Generate transforms analyzed endpoints into documentation output.
@@ -68,6 +68,7 @@ type apiEndpoint struct {
 	Method      string        `json:"method"`
 	Path        string        `json:"path"`
 	Summary     string        `json:"summary"`
+	Description string        `json:"description,omitempty"`
 	Tag         string        `json:"tag"`
 	Tags        []string      `json:"tags,omitempty"`
 	HandlerName string        `json:"handlerName"`
@@ -75,6 +76,7 @@ type apiEndpoint struct {
 	Auth        apiAuth       `json:"auth"`
 	Params      []apiParam    `json:"params"`
 	Headers     []apiHeader   `json:"headers"`
+	Cookies     []apiHeader   `json:"cookies,omitempty"`
 	Body        *apiBody      `json:"body"`
 	Responses   []apiResponse `json:"responses"`
 	Unresolved  []string      `json:"unresolved"`
@@ -114,6 +116,9 @@ type apiField struct {
 	Type     string `json:"type"`
 	Required bool   `json:"required"`
 	Example  string `json:"example,omitempty"`
+	// Constraints are pre-rendered chips: the docs page shows what a client
+	// must send, and the phrasing rules belong with the other analysis.
+	Constraints []string `json:"constraints,omitempty"`
 }
 
 type apiResponse struct {
@@ -157,12 +162,14 @@ func buildAPIData(endpoints []model.EndpointDef, cfg GeneratorConfig) apiData {
 			Method:      ep.Method,
 			Path:        ep.Path,
 			Summary:     ep.Summary,
+			Description: ep.Description,
 			HandlerName: ep.HandlerName,
 			Deprecated:  ep.Deprecated,
 			Unresolved:  ep.Unresolved,
 			Auth:        convertAuth(ep.Auth),
 			Params:      convertParams(ep.Request),
 			Headers:     convertHeaders(ep.Request.Headers),
+			Cookies:     convertHeaders(ep.Request.Cookies),
 			Body:        convertBody(ep.Request),
 			Responses:   convertResponses(ep.Responses),
 		}
@@ -303,6 +310,8 @@ func convertTypeDefFields(td *model.TypeDef) []apiField {
 			JSONName: f.JSONName,
 			Type:     typeDefToString(&f.Type),
 			Required: f.Required,
+
+			Constraints: describeConstraints(f.Constraints),
 		}
 		if f.Example != nil {
 			exBytes, err := json.Marshal(f.Example)

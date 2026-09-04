@@ -51,6 +51,9 @@ func ExtractContract(
 	// 3. Headers.
 	headers := ExtractHeaders(body, info, paramNames)
 
+	// 3b. Cookies.
+	cookies := ExtractCookies(body, info, paramNames)
+
 	// 4. Request body (pkgs enables one-level helper tracing for net/http).
 	bodyResult := ExtractBody(body, info, paramNames, pkgs)
 	unresolved = append(unresolved, bodyResult.Unresolved...)
@@ -74,6 +77,7 @@ func ExtractContract(
 		PathParams:  pathParams,
 		QueryParams: queryParams,
 		Headers:     headers,
+		Cookies:     cookies,
 		ContentType: bodyResult.ContentType,
 		IsMultipart: bodyResult.IsMultipart,
 	}

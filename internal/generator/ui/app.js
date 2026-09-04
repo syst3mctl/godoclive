@@ -616,6 +616,15 @@
       lines.push('  -H "' + h.name + ': your-value"');
     });
 
+    // Cookies. The Try It panel cannot send these — fetch forbids scripts from
+    // setting a Cookie header — but curl can, so the snippet carries them.
+    var cookiePairs = (ep.cookies || []).map(function (c) {
+      return c.name + '=your-value';
+    });
+    if (cookiePairs.length > 0) {
+      lines.push('  -b "' + cookiePairs.join('; ') + '"');
+    }
+
     // Body
     if (ep.body && ep.body.example) {
       lines.push('  -H "Content-Type: ' + requestContentType(ep.body.contentType) + '"');
@@ -884,6 +893,16 @@
           html += '<div class="card-summary">' + esc(ep.summary) + '</div>';
         }
 
+        // Description — the rest of the handler's doc comment. Paragraphs are
+        // kept apart; the text is escaped, never treated as markup.
+        if (ep.description) {
+          html += '<div class="card-description">';
+          ep.description.split('\n\n').forEach(function (para) {
+            html += '<p>' + esc(para) + '</p>';
+          });
+          html += '</div>';
+        }
+
         // Unresolved callout (hidden by default)
         if (ep.unresolved && ep.unresolved.length > 0) {
           html += '<div class="unresolved-callout hidden" id="unresolved-' + epId + '">';
@@ -909,6 +928,9 @@
         // === Request Headers ===
         if (ep.headers && ep.headers.length > 0) {
           html += buildSection('Request Headers', null, buildHeaderTable(ep.headers));
+        }
+        if (ep.cookies && ep.cookies.length > 0) {
+          html += buildSection('Cookies', null, buildHeaderTable(ep.cookies));
         }
 
         // === Request Body ===
@@ -1050,8 +1072,15 @@
   // Field table (schema)
   // ============================================================
   function buildFieldTable(fields) {
+    // The constraints column costs horizontal room, so it only appears when
+    // some field in this schema actually declares one.
+    var hasConstraints = fields.some(function (f) {
+      return f.constraints && f.constraints.length > 0;
+    });
+
     var h = '<table class="param-table"><thead><tr>';
     h += '<th>Field</th><th>Type</th><th>Required</th>';
+    if (hasConstraints) { h += '<th>Constraints</th>'; }
     h += '</tr></thead><tbody>';
     fields.forEach(function (f) {
       h += '<tr>';
@@ -1063,10 +1092,23 @@
         h += '<span class="field-required-text"> required</span>';
       }
       h += '</td>';
+      if (hasConstraints) {
+        h += '<td>' + constraintChips(f.constraints) + '</td>';
+      }
       h += '</tr>';
     });
     h += '</tbody></table>';
     return h;
+  }
+
+  // constraintChips renders the pre-rendered constraint phrases as pills.
+  function constraintChips(constraints) {
+    if (!constraints || constraints.length === 0) { return '<span class="constraint-none">—</span>'; }
+    var h = '<span class="constraint-list">';
+    constraints.forEach(function (c) {
+      h += '<span class="constraint-chip" title="' + esc(c) + '">' + esc(c) + '</span>';
+    });
+    return h + '</span>';
   }
 
   // ============================================================
@@ -1868,6 +1910,7 @@
           ep.method.toLowerCase().indexOf(q) !== -1 ||
           ep.path.toLowerCase().indexOf(q) !== -1 ||
           (ep.summary && ep.summary.toLowerCase().indexOf(q) !== -1) ||
+        (ep.description && ep.description.toLowerCase().indexOf(q) !== -1) ||
           (ep.tag && ep.tag.toLowerCase().indexOf(q) !== -1);
 
         if (match) { row.classList.remove('hidden'); visibleCount++; }
@@ -1896,6 +1939,7 @@
         ep.method.toLowerCase().indexOf(q) !== -1 ||
         ep.path.toLowerCase().indexOf(q) !== -1 ||
         (ep.summary && ep.summary.toLowerCase().indexOf(q) !== -1) ||
+        (ep.description && ep.description.toLowerCase().indexOf(q) !== -1) ||
         (ep.tag && ep.tag.toLowerCase().indexOf(q) !== -1);
       if (match) card.classList.remove('hidden');
       else card.classList.add('hidden');
