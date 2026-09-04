@@ -3,6 +3,7 @@ package extractor_test
 import (
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/syst3mctl/godoclive/internal/extractor"
@@ -749,6 +750,76 @@ func TestChiExtractor_NonRouterMethodIgnored(t *testing.T) {
 	for _, r := range routes {
 		if r.Path == "warm" {
 			t.Errorf("cache.Get(\"warm\", …) was extracted as a route (%s:%d)", r.File, r.Line)
+		}
+	}
+}
+
+// TestStdlibExtractor_MultiPackage covers a ServeMux that reaches the
+// registration site as a parameter or a struct field rather than as a local
+// variable — the layout of any service that keeps routes out of main().
+func TestStdlibExtractor_MultiPackage(t *testing.T) {
+	dir := testdataDir("stdlib-multipkg")
+	pkgs, err := loader.LoadPackages(dir, "./...")
+	if err != nil {
+		t.Fatalf("LoadPackages failed: %v", err)
+	}
+
+	ext := &extractor.StdlibExtractor{}
+	routes, err := ext.Extract(pkgs)
+	if err != nil {
+		t.Fatalf("Extract failed: %v", err)
+	}
+
+	expected := map[string]bool{
+		// Handed to routes.Register(mux) from main().
+		"GET /health": true,
+		// Handed on again to registerItems(mux).
+		"GET /api/v1/items":          true,
+		"POST /api/v1/items":         true,
+		"GET /api/v1/items/{itemID}": true,
+		// Built inside a factory whose signature names no mux type.
+		"GET /factory": true,
+		// Registered on a mux held in a struct field.
+		"GET /status": true,
+	}
+
+	seen := map[string]bool{}
+	for _, r := range routes {
+		key := r.Method + " " + r.Path
+		if seen[key] {
+			t.Errorf("route emitted twice: %s", key)
+		}
+		seen[key] = true
+		if !expected[key] {
+			t.Errorf("unexpected route: %s (%s:%d)", key, r.File, r.Line)
+		}
+	}
+	for key := range expected {
+		if !seen[key] {
+			t.Errorf("missing route: %s", key)
+		}
+	}
+}
+
+// TestStdlibExtractor_NonMuxHandleIgnored guards the receiver type check:
+// Handle is a common method name, and only a *http.ServeMux receiver makes it
+// a route.
+func TestStdlibExtractor_NonMuxHandleIgnored(t *testing.T) {
+	dir := testdataDir("stdlib-multipkg")
+	pkgs, err := loader.LoadPackages(dir, "./...")
+	if err != nil {
+		t.Fatalf("LoadPackages failed: %v", err)
+	}
+
+	ext := &extractor.StdlibExtractor{}
+	routes, err := ext.Extract(pkgs)
+	if err != nil {
+		t.Fatalf("Extract failed: %v", err)
+	}
+
+	for _, r := range routes {
+		if strings.Contains(r.Path, "warm") {
+			t.Errorf("bus.Handle(\"warm\", …) was extracted as a route (%s:%d)", r.File, r.Line)
 		}
 	}
 }

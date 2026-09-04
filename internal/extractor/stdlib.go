@@ -28,7 +28,6 @@ func (e *StdlibExtractor) Extract(pkgs []*packages.Package) ([]RawRoute, error) 
 				astFile: file,
 				file:    fpath,
 				info:    pkg.TypesInfo,
-				muxVars: make(map[string]bool),
 			}
 			for _, decl := range file.Decls {
 				fn, ok := decl.(*ast.FuncDecl)
@@ -65,7 +64,6 @@ type stdlibWalker struct {
 	file    string
 	info    *types.Info
 	routes  []RawRoute
-	muxVars map[string]bool // tracks variables assigned from http.NewServeMux()
 }
 
 // walkBlock walks a list of statements looking for stdlib route registrations.
@@ -74,8 +72,6 @@ func (w *stdlibWalker) walkBlock(stmts []ast.Stmt, parentMW []ast.Expr) {
 
 	for _, stmt := range stmts {
 		switch s := stmt.(type) {
-		case *ast.AssignStmt:
-			w.handleAssign(s)
 		case *ast.ExprStmt:
 			call, ok := s.X.(*ast.CallExpr)
 			if !ok {
@@ -92,29 +88,42 @@ func (w *stdlibWalker) walkBlock(stmts []ast.Stmt, parentMW []ast.Expr) {
 	}
 }
 
-// handleAssign detects mux := http.NewServeMux() assignments.
-func (w *stdlibWalker) handleAssign(assign *ast.AssignStmt) {
-	if len(assign.Lhs) == 0 || len(assign.Rhs) == 0 {
-		return
+// isMuxRegistration reports whether a HandleFunc/Handle call registers on a
+// ServeMux: either the package-level http.HandleFunc, which registers on
+// http.DefaultServeMux, or a method call on any *http.ServeMux value.
+//
+// The receiver is identified by its type rather than by tracking which local
+// variables were assigned from http.NewServeMux(). Name tracking only ever saw
+// a mux built in the same function, so a mux arriving as a parameter — the
+// shape of every routes.Register(mux) helper — or held in a struct field was
+// invisible.
+func (w *stdlibWalker) isMuxRegistration(sel *ast.SelectorExpr) bool {
+	if w.info == nil {
+		return false
 	}
-	call, ok := assign.Rhs[0].(*ast.CallExpr)
-	if !ok {
-		return
-	}
-	sel, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok {
-		return
-	}
-	ident, ok := sel.X.(*ast.Ident)
-	if !ok {
-		return
-	}
-	if ident.Name == "http" && sel.Sel.Name == "NewServeMux" {
-		lhs, ok := assign.Lhs[0].(*ast.Ident)
-		if ok {
-			w.muxVars[lhs.Name] = true
+	if ident, ok := sel.X.(*ast.Ident); ok {
+		if pkgName, ok := w.info.Uses[ident].(*types.PkgName); ok {
+			return pkgName.Imported().Path() == "net/http"
 		}
 	}
+	return isServeMuxType(w.info.TypeOf(sel.X))
+}
+
+// isServeMuxType reports whether t is http.ServeMux, possibly behind a pointer.
+func isServeMuxType(t types.Type) bool {
+	if t == nil {
+		return false
+	}
+	if ptr, ok := t.(*types.Pointer); ok {
+		t = ptr.Elem()
+	}
+	named, ok := t.(*types.Named)
+	if !ok {
+		return false
+	}
+	obj := named.Obj()
+	return obj != nil && obj.Pkg() != nil &&
+		obj.Pkg().Path() == "net/http" && obj.Name() == "ServeMux"
 }
 
 // processCall dispatches a call expression based on the method name.
@@ -127,16 +136,7 @@ func (w *stdlibWalker) processCall(call *ast.CallExpr, scopeMW []ast.Expr) {
 
 	switch {
 	case (name == "HandleFunc" || name == "Handle") && len(call.Args) >= 2:
-		// Could be http.HandleFunc or mux.HandleFunc
-		isHTTPPkg := false
-		if ident, ok := sel.X.(*ast.Ident); ok {
-			if ident.Name == "http" {
-				isHTTPPkg = true
-			} else if w.muxVars[ident.Name] {
-				isHTTPPkg = true // mux variable
-			}
-		}
-		if isHTTPPkg {
+		if w.isMuxRegistration(sel) {
 			w.addRoute(call, scopeMW)
 		}
 	}
