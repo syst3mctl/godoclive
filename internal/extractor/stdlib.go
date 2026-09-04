@@ -144,7 +144,7 @@ func (w *stdlibWalker) processCall(call *ast.CallExpr, scopeMW []ast.Expr) {
 
 // addRoute parses the pattern string and records a route.
 func (w *stdlibWalker) addRoute(call *ast.CallExpr, middlewares []ast.Expr) {
-	if hasIgnoreDirective(w.fset, w.astFile, call.Pos()) {
+	if hasIgnoreDirective(w.fset, w.astFile, call.Pos(), call.End()) {
 		return
 	}
 	pattern := stringLitValue(call.Args[0])

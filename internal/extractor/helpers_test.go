@@ -61,6 +61,21 @@ func TestHasIgnoreDirective(t *testing.T) {
 			src:  "package p\n//go:generate foo\nvar x = 1\n",
 			want: false,
 		},
+		{
+			// A registration whose handler is an inline func literal spans
+			// several lines, and the trailing directive lands after the
+			// closing brace — the node's last line, not its first.
+			name: "trailing comment on the node's last line",
+			src:  "package p\nvar x = []int{\n\t1,\n} //godoclive:ignore\n",
+			want: true,
+		},
+		{
+			// Interior lines do not count, so a directive written against
+			// something nested inside the node does not suppress the node.
+			name: "comment on an interior line",
+			src:  "package p\nvar x = []int{\n\t1, //godoclive:ignore\n}\n",
+			want: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -72,10 +87,10 @@ func TestHasIgnoreDirective(t *testing.T) {
 			}
 
 			// Find the GenDecl (var x = 1) position.
-			var targetPos token.Pos
+			var targetPos, targetEnd token.Pos
 			ast.Inspect(file, func(n ast.Node) bool {
 				if gd, ok := n.(*ast.GenDecl); ok && gd.Tok == token.VAR {
-					targetPos = gd.Pos()
+					targetPos, targetEnd = gd.Pos(), gd.End()
 					return false
 				}
 				return true
@@ -84,7 +99,7 @@ func TestHasIgnoreDirective(t *testing.T) {
 				t.Fatal("could not find var declaration in test source")
 			}
 
-			got := hasIgnoreDirective(fset, file, targetPos)
+			got := hasIgnoreDirective(fset, file, targetPos, targetEnd)
 			if got != tt.want {
 				t.Errorf("hasIgnoreDirective() = %v, want %v", got, tt.want)
 			}

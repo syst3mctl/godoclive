@@ -112,9 +112,11 @@ func TestChiExtractor_Nested(t *testing.T) {
 	//     .Use(AdminOnly)
 	//     GET  /stats  → /api/v1/stats
 	//     DELETE /cache → /api/v1/cache
-	// r.Mount("/admin", adminRouter()) — adminRouter is a separate func, not inline literal
-	//
-	// Total inline routes: 6 (the Mount callback is not a func literal, so not descended)
+	// r.Mount("/admin", adminRouter()) — adminRouter() is a separate factory
+	// function, followed through the mount so its routes carry the /admin
+	// prefix:
+	//   GET  /dashboard → /admin/dashboard
+	//   POST /settings  → /admin/settings
 	expected := map[string]bool{
 		"GET /api/v1/users":          true,
 		"POST /api/v1/users":         true,
@@ -122,6 +124,8 @@ func TestChiExtractor_Nested(t *testing.T) {
 		"PUT /api/v1/users/{userID}": true,
 		"GET /api/v1/stats":          true,
 		"DELETE /api/v1/cache":       true,
+		"GET /admin/dashboard":       true,
+		"POST /admin/settings":       true,
 	}
 
 	if len(routes) != len(expected) {
@@ -641,5 +645,110 @@ func TestStdlibExtractor_PatternParsing(t *testing.T) {
 	}
 	if !found {
 		t.Error("path parameter /users/{id} not found")
+	}
+}
+
+// TestChiExtractor_MultiPackage covers routes registered outside main(), the
+// layout of every real chi service: main() owns the router and hands it to
+// another package, and sub-routers are built by factories whose signatures name
+// no chi type. Regression test for issue #33, where none of these were found.
+func TestChiExtractor_MultiPackage(t *testing.T) {
+	dir := testdataDir("chi-multipkg")
+	pkgs, err := loader.LoadPackages(dir, "./...")
+	if err != nil {
+		t.Fatalf("LoadPackages failed: %v", err)
+	}
+
+	ext := &extractor.ChiExtractor{}
+	routes, err := ext.Extract(pkgs)
+	if err != nil {
+		t.Fatalf("Extract failed: %v", err)
+	}
+
+	expected := map[string]bool{
+		// routes.Register(r), called from main() at the root prefix.
+		"GET /health": true,
+		// registerPayments(r), reached through r.Route("/api/v1", …) so the
+		// prefix of the call site flows into the registrar.
+		"GET /api/v1/payments":             true,
+		"POST /api/v1/payments":            true,
+		"GET /api/v1/payments/{paymentID}": true,
+		// admin.Router() builds its own router and is mounted under /admin.
+		"GET /admin/dashboard": true,
+		// A router held in a struct field, registered from a method.
+		"GET /status": true,
+		// Route methods promoted from an embedded chi.Router.
+		"GET /embedded": true,
+	}
+
+	seen := map[string]bool{}
+	for _, r := range routes {
+		key := r.Method + " " + r.Path
+		if seen[key] {
+			t.Errorf("route emitted twice: %s", key)
+		}
+		seen[key] = true
+		if !expected[key] {
+			t.Errorf("unexpected route: %s (%s:%d)", key, r.File, r.Line)
+		}
+	}
+	for key := range expected {
+		if !seen[key] {
+			t.Errorf("missing route: %s", key)
+		}
+	}
+
+	// Every route reached a resolvable call site, so none carries an
+	// unknown-origin caveat.
+	for _, r := range routes {
+		if len(r.Unresolved) > 0 {
+			t.Errorf("%s %s: unexpected caveat %v", r.Method, r.Path, r.Unresolved)
+		}
+	}
+}
+
+// TestChiExtractor_MountedRouterNotDuplicated pins the rule that a factory
+// mounted by another function is emitted only under its mount prefix — never a
+// second time at the bare path it uses internally.
+func TestChiExtractor_MountedRouterNotDuplicated(t *testing.T) {
+	dir := testdataDir("chi-multipkg")
+	pkgs, err := loader.LoadPackages(dir, "./...")
+	if err != nil {
+		t.Fatalf("LoadPackages failed: %v", err)
+	}
+
+	ext := &extractor.ChiExtractor{}
+	routes, err := ext.Extract(pkgs)
+	if err != nil {
+		t.Fatalf("Extract failed: %v", err)
+	}
+
+	for _, r := range routes {
+		if r.Path == "/dashboard" {
+			t.Errorf("mounted route emitted without its /admin prefix (%s:%d)", r.File, r.Line)
+		}
+	}
+}
+
+// TestChiExtractor_NonRouterMethodIgnored guards the type check on the
+// receiver: walking every function means unrelated methods that happen to be
+// named Get or Post are now in scope, and must not become routes.
+func TestChiExtractor_NonRouterMethodIgnored(t *testing.T) {
+	dir := testdataDir("chi-multipkg")
+	pkgs, err := loader.LoadPackages(dir, "./...")
+	if err != nil {
+		t.Fatalf("LoadPackages failed: %v", err)
+	}
+
+	ext := &extractor.ChiExtractor{}
+	routes, err := ext.Extract(pkgs)
+	if err != nil {
+		t.Fatalf("Extract failed: %v", err)
+	}
+
+	for _, r := range routes {
+		if r.Path == "warm" {
+			t.Errorf("cache.Get(\"warm\", …) was extracted as a route (%s:%d)", r.File, r.Line)
+		}
 	}
 }
