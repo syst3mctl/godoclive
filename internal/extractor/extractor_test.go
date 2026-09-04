@@ -778,3 +778,37 @@ func TestGorillaExtractor_RoutesOutsideMain(t *testing.T) {
 	})
 	assertNoRouteMatching(t, &extractor.GorillaExtractor{}, "gorilla-multipkg", "warm")
 }
+
+func TestEchoExtractor_RoutesOutsideMain(t *testing.T) {
+	assertRoutesOutsideMain(t, &extractor.EchoExtractor{}, "echo-multipkg", []string{
+		// routes.Register(e), called from main() at the root prefix.
+		"GET /health",
+		// routes.RegisterItems(v1) is handed a group, so the prefix that group
+		// carries flows across the package boundary.
+		"GET /api/v1/items",
+		"POST /api/v1/items",
+		"GET /api/v1/items/{itemID}",
+		// Built inside a factory whose signature names no echo type.
+		"GET /factory",
+		// Registered on an Echo instance held in a struct field.
+		"GET /status",
+	})
+	assertNoRouteMatching(t, &extractor.EchoExtractor{}, "echo-multipkg", "warm")
+}
+
+func TestFiberExtractor_RoutesOutsideMain(t *testing.T) {
+	assertRoutesOutsideMain(t, &extractor.FiberExtractor{}, "fiber-multipkg", []string{
+		// routes.Register(app), called from main() at the root prefix.
+		"GET /health",
+		// routes.RegisterItems(v1) is handed a group, so the prefix that group
+		// carries flows across the package boundary.
+		"GET /api/v1/items",
+		"POST /api/v1/items",
+		"GET /api/v1/items/{itemID}",
+		// Built inside a factory whose signature names no fiber type.
+		"GET /factory",
+		// Registered on an App held in a struct field.
+		"GET /status",
+	})
+	assertNoRouteMatching(t, &extractor.FiberExtractor{}, "fiber-multipkg", "warm")
+}
