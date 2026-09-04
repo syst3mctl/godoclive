@@ -98,11 +98,11 @@ Hide individual endpoints directly from the sidebar — useful when you want to 
 | Router | Status | Features |
 |--------|--------|----------|
 | **chi** (`go-chi/chi/v5`) | Done | Route, Group, Mount, inline handlers, cross-package registration functions |
-| **gin** (`gin-gonic/gin`) | Done | Groups, Use chains, ShouldBindJSON |
-| **net/http** (Go 1.22+ stdlib) | Done | `"METHOD /path"` patterns, `r.PathValue()`, `http.Handler` |
-| **gorilla/mux** (`gorilla/mux`) | Done | `HandleFunc().Methods()`, `PathPrefix().Subrouter()`, `mux.Vars()`, regex params |
-| **echo** (`labstack/echo/v4`) | Done | Groups, Use chains, `c.Bind()`, `c.QueryParam()`, `c.JSON()`, `c.NoContent()` |
-| **fiber** (`gofiber/fiber/v2`) | Done | Groups, Use chains, `c.BodyParser()`, `c.Query()`, `c.Params()`, `c.Status().JSON()`, `c.SendStatus()` |
+| **gin** (`gin-gonic/gin`) | Done | Groups, Use chains, ShouldBindJSON, cross-package registration functions |
+| **net/http** (Go 1.22+ stdlib) | Done | `"METHOD /path"` patterns, `r.PathValue()`, `http.Handler`, cross-package registration functions |
+| **gorilla/mux** (`gorilla/mux`) | Done | `HandleFunc().Methods()`, `PathPrefix().Subrouter()`, `mux.Vars()`, regex params, cross-package registration functions |
+| **echo** (`labstack/echo/v4`) | Done | Groups, Use chains, `c.Bind()`, `c.QueryParam()`, `c.JSON()`, `c.NoContent()`, cross-package registration functions |
+| **fiber** (`gofiber/fiber/v2`) | Done | Groups, Use chains, `c.BodyParser()`, `c.Query()`, `c.Params()`, `c.Status().JSON()`, `c.SendStatus()`, cross-package registration functions |
 
 ## CLI Reference
 
@@ -294,7 +294,7 @@ openapi:
 
 1. **Load** — Uses `go/packages` to load and type-check your Go source code
 2. **Detect** — Identifies the router framework (chi, gin, gorilla/mux, echo, fiber, or stdlib) from imports
-3. **Extract** — Walks the AST to find route registrations, wherever they live: `main()`, a `routes` package, a method on a server struct, or a sub-router factory followed through its mount site
+3. **Extract** — Walks the AST to find route registrations, wherever they live: `main()`, a `routes` package, a method on a server struct, or a sub-router factory followed through its mount site. Works the same for every supported router
 4. **Resolve** — Resolves handler expressions to function declarations
 5. **Contract** — Extracts path params, query params, headers, body, and responses from handler ASTs
 6. **Map** — Converts `types.Type` into recursive `TypeDef` with JSON tags, examples, and field metadata

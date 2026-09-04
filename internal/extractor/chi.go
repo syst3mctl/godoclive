@@ -30,10 +30,6 @@ var chiSubrouterMethods = map[string]bool{
 	"Mount": true,
 }
 
-// maxChiHelperDepth bounds how deep registration-function expansion recurses so
-// a function that (directly or mutually) calls itself cannot loop forever.
-const maxChiHelperDepth = 8
-
 // ChiExtractor extracts routes from go-chi/chi router registrations.
 type ChiExtractor struct{}
 
@@ -48,7 +44,11 @@ type ChiExtractor struct{}
 // no call site reached, so their routes still appear, carrying the caveat that
 // their prefix is unknown.
 func (e *ChiExtractor) Extract(pkgs []*packages.Package) ([]RawRoute, error) {
-	idx := buildChiIndex(pkgs)
+	idx := buildRouterIndex(pkgs, routerIndexSpec{
+		inScope:   isChiPackage,
+		registers: registersChiRoutes,
+		isRouter:  isChiType,
+	})
 
 	// Pass 1. Walking is separated from emission because reachability is only
 	// known once every root has been walked: a factory mounted by a function
@@ -84,20 +84,12 @@ func (e *ChiExtractor) Extract(pkgs []*packages.Package) ([]RawRoute, error) {
 		if h.paramIdx < 0 || idx.reached[h.decl] {
 			continue
 		}
-		w := newChiWalker(h.pkg, h.astFile, idx, []string{chiUnknownOriginNote(h)})
+		w := newChiWalker(h.pkg, h.astFile, idx, []string{unknownOriginNote(h.decl.Name.Name)})
 		w.walkBlock(h.decl.Body, "", nil)
 		routes = append(routes, w.routes...)
 	}
 
 	return routes, nil
-}
-
-// chiUnknownOriginNote explains why a registration function's routes may be
-// missing their prefix.
-func chiUnknownOriginNote(h *chiHelper) string {
-	return "route group origin unknown: " + h.decl.Name.Name +
-		" registers routes on a router parameter, but no resolvable call site was found — " +
-		"path prefix and middleware chain (including auth) are incomplete"
 }
 
 // isChiPackage returns true if the package imports chi.
@@ -149,10 +141,8 @@ func isChiReceiver(sel *ast.SelectorExpr, info *types.Info) bool {
 	// Resolving the selection first also covers a router reached through an
 	// embedded field (type Server struct{ chi.Router }), where the receiver's
 	// own type is not a chi type but the method resolves into chi.
-	if s, ok := info.Selections[sel]; ok && s.Obj() != nil {
-		if pkg := s.Obj().Pkg(); pkg != nil && isChiImport(pkg.Path()) {
-			return true
-		}
+	if receiverInPackage(sel, info, isChiImport) {
+		return true
 	}
 	return isChiType(info.TypeOf(sel.X))
 }
@@ -191,176 +181,21 @@ func registersChiRoutes(fn *ast.FuncDecl, info *types.Info) bool {
 	return found
 }
 
-// --- Registration index ---
-
-// chiHelper is a function that registers chi routes. paramIdx is the argument
-// position of its chi router parameter, or -1 when the function builds its own
-// router — a factory such as adminRouter() http.Handler, or main() itself.
-type chiHelper struct {
-	decl     *ast.FuncDecl
-	pkg      *packages.Package
-	astFile  *ast.File
-	paramIdx int
-}
-
-// chiIndex maps function objects to their registration record and tracks which
-// of them an expansion has already reached.
-type chiIndex struct {
-	byObj   map[types.Object]*chiHelper
-	ordered []*chiHelper
-	reached map[*ast.FuncDecl]bool
-}
-
-// buildChiIndex finds every function (including methods) that takes part in
-// chi route setup, across all packages that import chi.
-//
-// The first round indexes functions that call chi registration methods
-// directly. Later rounds add the functions that hand a chi router to an
-// already-indexed one — a main() whose whole routing body is
-// routes.Register(r), or a delegator that fans out to per-resource registrars,
-// registers nothing itself yet is the only link between the entry point and the
-// routes. Rounds repeat until the set stops growing, so a chain of delegators
-// is followed to its end.
-func buildChiIndex(pkgs []*packages.Package) *chiIndex {
-	idx := &chiIndex{
-		byObj:   make(map[types.Object]*chiHelper),
-		reached: make(map[*ast.FuncDecl]bool),
-	}
-
-	type candidate struct {
-		fn      *ast.FuncDecl
-		pkg     *packages.Package
-		astFile *ast.File
-	}
-	var pending []candidate
-	for _, pkg := range pkgs {
-		if !isChiPackage(pkg) || pkg.TypesInfo == nil {
-			continue
-		}
-		for _, file := range pkg.Syntax {
-			for _, decl := range file.Decls {
-				fn, ok := decl.(*ast.FuncDecl)
-				if !ok || fn.Body == nil {
-					continue
-				}
-				// Skip test and example functions so routes registered by test
-				// fixtures do not reach the documentation.
-				if strings.HasPrefix(fn.Name.Name, "Test") || strings.HasPrefix(fn.Name.Name, "Example") {
-					continue
-				}
-				pending = append(pending, candidate{fn: fn, pkg: pkg, astFile: file})
-			}
-		}
-	}
-
-	for {
-		remaining := pending[:0:0]
-		var added bool
-		for _, c := range pending {
-			info := c.pkg.TypesInfo
-			if !registersChiRoutes(c.fn, info) && !handsRouterToRegistration(c.fn, info, idx) {
-				remaining = append(remaining, c)
-				continue
-			}
-			h := &chiHelper{
-				decl:     c.fn,
-				pkg:      c.pkg,
-				astFile:  c.astFile,
-				paramIdx: chiRouterParam(c.fn, info),
-			}
-			idx.ordered = append(idx.ordered, h)
-			if obj, ok := info.Defs[c.fn.Name]; ok && obj != nil {
-				idx.byObj[obj] = h
-			}
-			added = true
-		}
-		pending = remaining
-		if !added {
-			break
-		}
-	}
-	return idx
-}
-
-// handsRouterToRegistration reports whether fn calls an already-indexed
-// registration function, passing a chi router in the parameter position that
-// function registers on.
-func handsRouterToRegistration(fn *ast.FuncDecl, info *types.Info, idx *chiIndex) bool {
-	if info == nil || len(idx.byObj) == 0 {
-		return false
-	}
-	var found bool
-	ast.Inspect(fn.Body, func(n ast.Node) bool {
-		if found {
-			return false
-		}
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		var ident *ast.Ident
-		switch f := call.Fun.(type) {
-		case *ast.Ident:
-			ident = f
-		case *ast.SelectorExpr:
-			ident = f.Sel
-		default:
-			return true
-		}
-		obj := info.Uses[ident]
-		if obj == nil {
-			return true
-		}
-		h, ok := idx.byObj[obj]
-		if !ok || h.paramIdx < 0 || h.paramIdx >= len(call.Args) {
-			return true
-		}
-		if isChiType(info.TypeOf(call.Args[h.paramIdx])) {
-			found = true
-			return false
-		}
-		return true
-	})
-	return found
-}
-
-// chiRouterParam returns the argument position of the first chi router
-// parameter of fn, or -1 when it has none. Grouped parameters (`a, b
-// chi.Router`) count each name separately so the index matches the call's
-// argument positions.
-func chiRouterParam(fn *ast.FuncDecl, info *types.Info) int {
-	if fn.Type == nil || fn.Type.Params == nil {
-		return -1
-	}
-	pos := 0
-	for _, field := range fn.Type.Params.List {
-		names := len(field.Names)
-		if names == 0 {
-			names = 1 // unnamed parameter still occupies a position
-		}
-		if isChiType(info.TypeOf(field.Type)) {
-			return pos
-		}
-		pos += names
-	}
-	return -1
-}
-
 // chiWalker extracts chi routes from a single file.
 type chiWalker struct {
 	fset       *token.FileSet
 	astFile    *ast.File
 	file       string
 	info       *types.Info
-	idx        *chiIndex
+	idx        *routerIndex
 	notes      []string
 	depth      int
 	stack      map[*ast.FuncDecl]bool
-	routerVars map[types.Object]*chiHelper
+	routerVars map[types.Object]*routerHelper
 	routes     []RawRoute
 }
 
-func newChiWalker(pkg *packages.Package, file *ast.File, idx *chiIndex, notes []string) *chiWalker {
+func newChiWalker(pkg *packages.Package, file *ast.File, idx *routerIndex, notes []string) *chiWalker {
 	return &chiWalker{
 		fset:       pkg.Fset,
 		astFile:    file,
@@ -369,7 +204,7 @@ func newChiWalker(pkg *packages.Package, file *ast.File, idx *chiIndex, notes []
 		idx:        idx,
 		notes:      notes,
 		stack:      make(map[*ast.FuncDecl]bool),
-		routerVars: make(map[types.Object]*chiHelper),
+		routerVars: make(map[types.Object]*routerHelper),
 	}
 }
 
@@ -417,7 +252,7 @@ func (w *chiWalker) recordRouterVar(assign *ast.AssignStmt) {
 	if !ok {
 		return
 	}
-	h := w.lookupRegistrationFunc(call.Fun)
+	h := w.idx.lookup(w.info, call.Fun)
 	if h == nil || h.paramIdx >= 0 {
 		return
 	}
@@ -514,7 +349,7 @@ func (w *chiWalker) descendInto(arg ast.Expr, prefix string, parentMW []Middlewa
 		w.walkBlock(a.Body, prefix, parentMW)
 	case *ast.CallExpr:
 		// r.Mount("/admin", adminRouter())
-		w.expandInto(w.lookupRegistrationFunc(a.Fun), prefix, parentMW)
+		w.expandInto(w.idx.lookup(w.info, a.Fun), prefix, parentMW)
 	case *ast.Ident, *ast.SelectorExpr:
 		// r.Route("/api", api.Register) — a func value passed by name — or a
 		// variable holding a router a factory returned earlier.
@@ -525,7 +360,7 @@ func (w *chiWalker) descendInto(arg ast.Expr, prefix string, parentMW []Middlewa
 // expandRegistrationCall handles a plain call to a function that registers
 // routes on a router it is handed, e.g. routes.RegisterRoutes(r) in main().
 func (w *chiWalker) expandRegistrationCall(call *ast.CallExpr, prefix string, scopeMW []MiddlewareRef) {
-	h := w.lookupRegistrationFunc(call.Fun)
+	h := w.idx.lookup(w.info, call.Fun)
 	if h == nil || h.paramIdx < 0 {
 		return
 	}
@@ -539,13 +374,13 @@ func (w *chiWalker) expandRegistrationCall(call *ast.CallExpr, prefix string, sc
 
 // expandInto walks a registration function's body under the given prefix and
 // middleware chain, folding the routes it finds into this walker.
-func (w *chiWalker) expandInto(h *chiHelper, prefix string, parentMW []MiddlewareRef) {
+func (w *chiWalker) expandInto(h *routerHelper, prefix string, parentMW []MiddlewareRef) {
 	if h == nil {
 		return
 	}
 	w.idx.reached[h.decl] = true
 
-	if w.depth >= maxChiHelperDepth || w.stack[h.decl] {
+	if w.depth >= maxHelperDepth || w.stack[h.decl] {
 		return // recursion or runaway nesting: stop, but stay marked as reached
 	}
 
@@ -560,39 +395,14 @@ func (w *chiWalker) expandInto(h *chiHelper, prefix string, parentMW []Middlewar
 	w.routes = append(w.routes, inner.routes...)
 }
 
-// lookupRegistrationFunc resolves a call's function expression to its
-// registration record, or nil when it does not register chi routes.
-func (w *chiWalker) lookupRegistrationFunc(expr ast.Expr) *chiHelper {
-	obj := w.identObject(expr)
-	if obj == nil {
-		return nil
-	}
-	return w.idx.byObj[obj]
-}
-
 // lookupRouterValue resolves an identifier used as a sub-router: either a
 // registration function referenced by name, or a variable a factory assigned.
-func (w *chiWalker) lookupRouterValue(expr ast.Expr) *chiHelper {
-	if h := w.lookupRegistrationFunc(expr); h != nil {
+func (w *chiWalker) lookupRouterValue(expr ast.Expr) *routerHelper {
+	if h := w.idx.lookup(w.info, expr); h != nil {
 		return h
 	}
-	if obj := w.identObject(expr); obj != nil {
+	if obj := identObject(w.info, expr); obj != nil {
 		return w.routerVars[obj]
-	}
-	return nil
-}
-
-// identObject resolves an identifier or selector expression to the object it
-// refers to.
-func (w *chiWalker) identObject(expr ast.Expr) types.Object {
-	if w.info == nil || w.idx == nil {
-		return nil
-	}
-	switch e := expr.(type) {
-	case *ast.Ident:
-		return w.info.Uses[e]
-	case *ast.SelectorExpr:
-		return w.info.Uses[e.Sel]
 	}
 	return nil
 }
