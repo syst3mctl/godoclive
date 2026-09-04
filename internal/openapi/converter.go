@@ -329,7 +329,11 @@ func (c *converter) typeDefToSchema(td *model.TypeDef) *Schema {
 		}
 		return s
 	case model.KindPrimitive:
-		return primitiveTypeToSchema(td.Name)
+		s := primitiveTypeToSchema(td.Name)
+		if td.Format != "" {
+			s.Format = td.Format
+		}
+		return s
 	case model.KindInterface:
 		return &Schema{Type: "object"}
 	default:

@@ -364,6 +364,11 @@ func typeDefToString(td *model.TypeDef) string {
 	case model.KindMap:
 		return "object"
 	case model.KindPrimitive:
+		if td.Format != "" {
+			// "string (date-time)" says more than "string" and matches what
+			// the spec documents.
+			return td.Name + " (" + td.Format + ")"
+		}
 		return td.Name
 	case model.KindInterface:
 		return "any"

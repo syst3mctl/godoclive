@@ -23,6 +23,12 @@ func mapType(t types.Type, pkg *packages.Package, visited map[*types.Named]bool)
 		return def
 	}
 
+	// A type whose JSON form is not its Go form — time.Time above all — must
+	// not be expanded into its fields.
+	if def, ok := wellKnownType(t); ok {
+		return def
+	}
+
 	// Check for named types to detect cycles.
 	if named, ok := t.(*types.Named); ok {
 		if visited[named] {
@@ -38,6 +44,13 @@ func mapType(t types.Type, pkg *packages.Package, visited map[*types.Named]bool)
 	switch u := t.Underlying().(type) {
 	case *types.Struct:
 		named, _ := t.(*types.Named)
+		// A type with its own MarshalJSON does not marshal as its fields, and
+		// what it does marshal as is only knowable by reading that method's
+		// body. Publishing the fields would document the one shape known to be
+		// wrong.
+		if named != nil && marshalsItsOwnJSON(t) {
+			return model.TypeDef{Kind: model.KindInterface, Name: named.Obj().Name()}
+		}
 		return mapStruct(named, u, pkg, visited)
 	case *types.Slice:
 		elem := mapType(u.Elem(), pkg, visited)

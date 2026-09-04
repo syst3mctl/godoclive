@@ -65,6 +65,7 @@ GoDoc Live has no drift problem — it reads the source of truth directly.
 | **Auth Detection** | JWT bearer, API key, and basic auth from middleware body scanning |
 | **Validation Rules** | `binding` / `validate` tags → `minLength`, `maximum`, `pattern`, `format`, `enum` |
 | **Enums** | Constants declared with a named string or integer type become the schema's `enum` |
+| **Scalar Types** | `time.Time`, `uuid.UUID`, `decimal.Decimal` and friends document as the scalar they marshal to, not as their Go fields |
 | **Doc Comments** | The handler's own comment becomes the summary and description |
 | **Auto Naming** | Tags, and summaries for handlers with no doc comment (`GetUserByID` → "Get User By ID") |
 

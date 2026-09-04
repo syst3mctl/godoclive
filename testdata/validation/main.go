@@ -7,6 +7,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 )
 
 // Status is the publication state of an article.
@@ -59,9 +60,27 @@ type CreateArticleRequest struct {
 
 // Article is a stored article.
 type Article struct {
-	ID     string `json:"id"`
-	Title  string `json:"title"`
-	Status Status `json:"status"`
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Status    Status    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
+	Duration  Duration  `json:"duration"`
+	Fee       Money     `json:"fee"`
+}
+
+// Duration is how long the article took to write.
+type Duration time.Duration
+
+// Money is an amount in minor units that serializes as a decimal string, not
+// as the struct it is declared as.
+type Money struct {
+	units    int64
+	currency string
+}
+
+// MarshalJSON writes the amount as a string.
+func (m Money) MarshalJSON() ([]byte, error) {
+	return []byte(`"0.00"`), nil
 }
 
 // CreateArticle files a new article for editorial review.

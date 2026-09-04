@@ -85,6 +85,7 @@ type TypeDef struct {
 	IsPointer bool
 	Example   interface{} // Auto-generated example value
 	Enum      []string    // Values of the constants declared with this named type
+	Format    string      // OpenAPI format for types that marshal to a scalar: date-time, uuid…
 }
 
 // TypeKind categorizes the kind of a TypeDef.
