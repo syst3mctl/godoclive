@@ -26,10 +26,16 @@ func (e *GorillaExtractor) Extract(pkgs []*packages.Package) ([]RawRoute, error)
 		inScope:   isGorillaPackage,
 		registers: registersGorillaRoutes,
 		isRouter:  isGorillaMuxType,
+		wrapsPath: wrapsGorillaRoutes,
 	})
 
 	var routes []RawRoute
 	for _, h := range idx.ordered {
+		if h.wraps {
+			// A house router wrapper only means something once expanded at a
+			// call site; on its own its path is a parameter name.
+			continue
+		}
 		if h.paramIdx >= 0 {
 			continue // registers on a router it is handed: reached via call sites
 		}
@@ -140,6 +146,7 @@ func registersGorillaRoutes(fn *ast.FuncDecl, info *types.Info) bool {
 
 // gorillaWalker extracts gorilla/mux routes from a single file.
 type gorillaWalker struct {
+	bind       *paramBinding // set when walking a house router wrapper's body
 	fset       *token.FileSet
 	astFile    *ast.File
 	file       string
@@ -299,7 +306,14 @@ func (w *gorillaWalker) receiverPrefix(sel *ast.SelectorExpr, prefix string) str
 // routes on a router it is handed, e.g. routes.Register(r).
 func (w *gorillaWalker) expandRegistrationCall(call *ast.CallExpr, prefix string, scopeMW []MiddlewareRef) {
 	h := w.idx.lookup(w.info, call.Fun)
-	if h == nil || h.paramIdx < 0 || h.paramIdx >= len(call.Args) {
+	if h == nil {
+		return
+	}
+	if h.wraps && canWrap(h, call) {
+		w.expandWrapperCall(h, call, prefix, scopeMW)
+		return
+	}
+	if h.paramIdx < 0 || h.paramIdx >= len(call.Args) {
 		return
 	}
 	arg := call.Args[h.paramIdx]
@@ -344,12 +358,12 @@ func (w *gorillaWalker) addRoute(call *ast.CallExpr, prefix string, middlewares 
 	if hasIgnoreDirective(w.fset, w.astFile, call.Pos(), call.End()) {
 		return
 	}
-	patternArg := stringLitValue(call.Args[0])
+	patternArg := boundString(w.info, w.bind, call.Args[0])
 	fullPath := NormalizeGorillaPath(joinPath(prefix, patternArg))
-	handler := call.Args[1]
+	handler, handlerInfo, substituted := boundExpr(w.info, w.bind, call.Args[1])
 
 	pos := w.fset.Position(call.Pos())
-	w.routes = append(w.routes, RawRoute{
+	route := RawRoute{
 		Method:      "ANY",
 		Path:        fullPath,
 		HandlerExpr: handler,
@@ -357,7 +371,8 @@ func (w *gorillaWalker) addRoute(call *ast.CallExpr, prefix string, middlewares 
 		File:        w.file,
 		Line:        pos.Line,
 		Unresolved:  w.notes,
-	})
+	}
+	w.routes = append(w.routes, applyBinding(route, w.bind, handlerInfo, substituted))
 }
 
 // addChainedRoute records routes from a HandleFunc/Handle call chained with .Methods().
@@ -379,15 +394,15 @@ func (w *gorillaWalker) addChainedRoute(call *ast.CallExpr, prefix string, middl
 
 	callPrefix := w.receiverPrefix(sel, prefix)
 
-	patternArg := stringLitValue(call.Args[0])
+	patternArg := boundString(w.info, w.bind, call.Args[0])
 	fullPath := NormalizeGorillaPath(joinPath(callPrefix, patternArg))
-	handler := call.Args[1]
+	handler, handlerInfo, substituted := boundExpr(w.info, w.bind, call.Args[1])
 
 	pos := w.fset.Position(call.Pos())
 
 	// One route per method.
 	for _, m := range methods {
-		w.routes = append(w.routes, RawRoute{
+		route := RawRoute{
 			Method:      m,
 			Path:        fullPath,
 			HandlerExpr: handler,
@@ -395,7 +410,8 @@ func (w *gorillaWalker) addChainedRoute(call *ast.CallExpr, prefix string, middl
 			File:        w.file,
 			Line:        pos.Line,
 			Unresolved:  w.notes,
-		})
+		}
+		w.routes = append(w.routes, applyBinding(route, w.bind, handlerInfo, substituted))
 	}
 	return true
 }
@@ -416,4 +432,35 @@ func extractMethodStrings(args []ast.Expr) []string {
 // e.g. "/items/{id:[0-9]+}" → "/items/{id}"
 func NormalizeGorillaPath(path string) string {
 	return gorillaParamRegex.ReplaceAllString(path, "{$1}")
+}
+
+// wrapsGorillaRoutes reports whether a function is a house router wrapper over
+// gorilla: it registers a route whose path it takes as a parameter.
+func wrapsGorillaRoutes(fn *ast.FuncDecl, info *types.Info) bool {
+	return wrapsRoutes(fn, info, func(name string) bool { return name == "HandleFunc" || name == "Handle" }, isGorillaMuxType)
+}
+
+// expandWrapperCall walks a house router wrapper's body with the call's
+// arguments bound to its parameters, so the path and handler it was handed
+// resolve.
+func (w *gorillaWalker) expandWrapperCall(h *routerHelper, call *ast.CallExpr, prefix string, parentMW []MiddlewareRef) {
+	if w.depth >= maxHelperDepth || w.stack[h.decl] {
+		return
+	}
+	bind := bindCallArgs(h, call, w.fset, w.info)
+	if bind == nil {
+		return
+	}
+	w.idx.reached[h.decl] = true
+
+	inner := newGorillaWalker(h.pkg, h.astFile, w.idx, w.notes)
+	inner.depth = w.depth + 1
+	inner.bind = bind
+	for decl := range w.stack {
+		inner.stack[decl] = true
+	}
+	inner.stack[h.decl] = true
+	inner.walkBlock(h.decl.Body.List, prefix, parentMW)
+
+	w.routes = append(w.routes, inner.routes...)
 }

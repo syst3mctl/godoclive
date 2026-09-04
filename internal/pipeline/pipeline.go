@@ -96,7 +96,13 @@ func RunPipeline(dir, pattern string, cfg *config.Config) ([]model.EndpointDef, 
 // processRoute converts a single RawRoute into a fully-resolved EndpointDef.
 func processRoute(route extractor.RawRoute, pkgs []*packages.Package, typeIdx typeIndex) (model.EndpointDef, error) {
 	// Find the TypesInfo from the package that contains this route's file.
-	info := findInfoForRoute(route, pkgs)
+	// A route expanded through a house router wrapper carries the type info its
+	// handler expression belongs to, which is the call site's package rather
+	// than the wrapper's.
+	info := route.HandlerInfo
+	if info == nil {
+		info = findInfoForRoute(route, pkgs)
+	}
 	if info == nil {
 		return model.EndpointDef{}, fmt.Errorf("could not find type info for route %s %s", route.Method, route.Path)
 	}

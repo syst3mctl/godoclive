@@ -91,6 +91,11 @@ func (e *GinExtractor) Extract(pkgs []*packages.Package) ([]RawRoute, error) {
 		if idx.reached[h.decl] {
 			continue
 		}
+		if h.wraps {
+			// A wrapper nothing called registers nothing. Emitting its body
+			// would produce a route whose path is a parameter's name.
+			continue
+		}
 		w := newGinWalker(h.pkg, h.astFile, idx, []string{ginUnknownOriginNote(h)})
 		if h.paramName != "" {
 			w.groups[h.paramName] = &ginGroup{originUnknown: true}
@@ -129,6 +134,9 @@ type ginHelper struct {
 	astFile   *ast.File
 	paramIdx  int    // position of the router parameter in the call's arguments
 	paramName string // the router parameter's identifier inside the helper
+	// wraps marks a house router wrapper: it names no gin router in its
+	// signature and registers a route whose path it takes as a parameter.
+	wraps bool
 }
 
 // ginHelperIndex maps function objects to their registration-helper record and
@@ -165,8 +173,16 @@ func buildGinHelperIndex(pkgs []*packages.Package) *ginHelperIndex {
 					continue
 				}
 				paramIdx, paramName, ok := ginRouterParam(fn, pkg.TypesInfo)
+				wraps := false
 				if !ok {
-					continue
+					// A house router wrapper holds the gin engine in a field
+					// and takes the path and handler as parameters, so it names
+					// no gin type in its signature. It still registers routes,
+					// and only its call sites can say which.
+					if !wrapsGinRoutes(fn, pkg.TypesInfo) {
+						continue
+					}
+					wraps, paramIdx, paramName = true, -1, ""
 				}
 				h := &ginHelper{
 					decl:      fn,
@@ -174,6 +190,7 @@ func buildGinHelperIndex(pkgs []*packages.Package) *ginHelperIndex {
 					astFile:   file,
 					paramIdx:  paramIdx,
 					paramName: paramName,
+					wraps:     wraps,
 				}
 				idx.byDecl[fn] = h
 				idx.ordered = append(idx.ordered, h)
@@ -253,6 +270,7 @@ type ginWalker struct {
 	notes   []string             // caveats attached to every route this walker emits
 	depth   int                  // registration-helper expansion depth
 	stack   map[*ast.FuncDecl]bool
+	bind    *paramBinding // set when walking a house router wrapper's body
 }
 
 func newGinWalker(pkg *packages.Package, file *ast.File, idx *ginHelperIndex, notes []string) *ginWalker {
@@ -445,6 +463,11 @@ func (w *ginWalker) expandHelperCall(call *ast.CallExpr, prefix string, scopeMW 
 		return true // recursion or runaway nesting: stop, but do not re-walk as a root
 	}
 
+	if h.wraps {
+		w.expandWrapperCall(h, call, prefix, scopeMW)
+		return true
+	}
+
 	notes := w.notes
 	group := &ginGroup{}
 	if h.paramIdx < len(call.Args) {
@@ -522,6 +545,7 @@ func (w *ginWalker) addRoute(method string, group *ginGroup, call *ast.CallExpr)
 
 	// For gin, the handler is the last argument; middlewares are in between.
 	handler := call.Args[len(call.Args)-1]
+	handler, handlerInfo, substituted := boundExpr(w.info, w.bind, handler)
 
 	// Any args between path and handler are inline middlewares.
 	var inlineMW []ast.Expr
@@ -534,7 +558,7 @@ func (w *ginWalker) addRoute(method string, group *ginGroup, call *ast.CallExpr)
 	}
 
 	pos := w.fset.Position(call.Pos())
-	w.routes = append(w.routes, RawRoute{
+	route := RawRoute{
 		Method:      method,
 		Path:        fullPath,
 		HandlerExpr: handler,
@@ -542,7 +566,8 @@ func (w *ginWalker) addRoute(method string, group *ginGroup, call *ast.CallExpr)
 		File:        w.file,
 		Line:        pos.Line,
 		Unresolved:  notes,
-	})
+	}
+	w.routes = append(w.routes, applyBinding(route, w.bind, handlerInfo, substituted))
 }
 
 // pathArgValue resolves a route or group path argument to its compile-time
@@ -556,6 +581,18 @@ func (w *ginWalker) pathArgValue(expr ast.Expr) (string, bool) {
 	if w.info != nil {
 		if tv, ok := w.info.Types[expr]; ok && tv.Value != nil && tv.Value.Kind() == constant.String {
 			return constant.StringVal(tv.Value), true
+		}
+	}
+	// Inside a house router wrapper the path is a parameter, and its value is
+	// whatever the call site passed.
+	if arg, argInfo, ok := w.bind.resolve(w.info, expr); ok {
+		if lit, ok := arg.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+			return stringLitValue(lit), true
+		}
+		if argInfo != nil {
+			if tv, ok := argInfo.Types[arg]; ok && tv.Value != nil && tv.Value.Kind() == constant.String {
+				return constant.StringVal(tv.Value), true
+			}
 		}
 	}
 	return "", false
@@ -590,4 +627,33 @@ func normalizeGinPath(p string) string {
 		}
 	}
 	return strings.Join(segments, "/")
+}
+
+// wrapsGinRoutes reports whether a function is a house router wrapper over gin:
+// it registers a route whose path it takes as a parameter.
+func wrapsGinRoutes(fn *ast.FuncDecl, info *types.Info) bool {
+	return wrapsRoutes(fn, info, func(name string) bool {
+		return ginMethods[name] != ""
+	}, isGinRouterType)
+}
+
+// expandWrapperCall walks a house router wrapper's body with the call's
+// arguments bound to its parameters, so the path and handler it was handed
+// resolve.
+func (w *ginWalker) expandWrapperCall(h *ginHelper, call *ast.CallExpr, prefix string, scopeMW []MiddlewareRef) {
+	bind := bindCallArgs(&routerHelper{decl: h.decl, pkg: h.pkg, astFile: h.astFile, paramIdx: -1}, call, w.fset, w.info)
+	if bind == nil {
+		return
+	}
+
+	inner := newGinWalker(h.pkg, h.astFile, w.idx, w.notes)
+	inner.depth = w.depth + 1
+	inner.bind = bind
+	for decl := range w.stack {
+		inner.stack[decl] = true
+	}
+	inner.stack[h.decl] = true
+	inner.walkBlock(h.decl.Body.List, prefix, scopeMW)
+
+	w.routes = append(w.routes, inner.routes...)
 }

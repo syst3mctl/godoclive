@@ -178,6 +178,35 @@ stdlib `ServeMux` for health and metrics — or a chi tree that still carries a
 legacy gorilla subtree — is documented in full. Each endpoint records which
 framework registered it.
 
+### House Router Wrappers
+
+Plenty of teams never call their router directly. They put a type in front of
+it and register through that:
+
+```go
+package httpx
+
+type Router struct{ mux *http.ServeMux }
+
+// Handle registers a handler for a method-and-path pattern.
+func (r *Router) Handle(pattern string, h http.HandlerFunc) {
+    r.mux.HandleFunc(pattern, h)
+}
+```
+
+```go
+r := httpx.New()
+r.Handle("GET /users", handlers.ListUsers)
+```
+
+Walking that wrapper on its own finds a registration whose path is an
+identifier and whose handler is a parameter — neither resolves, and the whole
+service comes back empty. GoDoc Live binds each call site's arguments to the
+wrapper's parameters and walks the body once per call, so the path and handler
+resolve as if they had been written inline. It works for all six frameworks,
+and across packages: the wrapper, the handlers and the wiring can each live in
+their own.
+
 ## CLI Reference
 
 ### `godoclive generate [packages]`
