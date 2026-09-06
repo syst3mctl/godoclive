@@ -18,7 +18,7 @@ budget:
   max_tokens: 400000
 priority: 1
 created: 2026-09-06T12:55:04Z
-updated: 2026-09-06T13:07:17Z
+updated: 2026-09-06T13:08:58Z
 ---
 
 ## Why
@@ -45,3 +45,4 @@ The user explicitly requested implementation of all nine confirmed findings on o
 - 2026-09-06T12:55Z agent/codex-fixes-20260906: claimed, lease until 2026-09-06T14:25:24Z
 - 2026-09-06T13:05Z agent/codex-fixes-20260906: All nine audit corrections are implemented on agent/godoclive-rnrffj; executable startup, runtime schema, SSE, watcher and Action regression checks pass; full make ci is running.
 - 2026-09-06T13:07Z agent/codex-fixes-20260906: First make ci passes race tests and vet; lint identifies three unchecked test cleanup calls, now corrected before the second CI run.
+- 2026-09-06T13:08Z agent/codex-fixes-20260906: Second make ci is green, including race tests, vet and lint; the pinned upstream corpus also passes its new operation-ID uniqueness gate.
