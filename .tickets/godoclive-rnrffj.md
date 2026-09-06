@@ -2,13 +2,13 @@
 id: godoclive-rnrffj
 title: Deliver the approved September audit corrections in one PR
 project: godoclive
-state: ready
+state: claimed
 kind: fix
 parent: null
 spawned_by: agent/codex-fixes-20260906
 approved_by: nicolas
-claimed_by: null
-lease_until: null
+claimed_by: agent/codex-fixes-20260906
+lease_until: 2026-09-06T14:25:24Z
 branch: null
 pr: null
 depends_on: []
@@ -18,7 +18,7 @@ budget:
   max_tokens: 400000
 priority: 1
 created: 2026-09-06T12:55:04Z
-updated: 2026-09-06T12:55:20Z
+updated: 2026-09-06T12:55:24Z
 ---
 
 ## Why
@@ -42,3 +42,4 @@ The user explicitly requested implementation of all nine confirmed findings on o
 <!-- append-only; newest last -->
 - 2026-09-06T12:55Z agent/codex-fixes-20260906: created
 - 2026-09-06T12:55Z nicolas: promoted to ready: Human approval in this conversation: Start implementing fixes for each confirmed findings in new branch and then open a PR.
+- 2026-09-06T12:55Z agent/codex-fixes-20260906: claimed, lease until 2026-09-06T14:25:24Z
