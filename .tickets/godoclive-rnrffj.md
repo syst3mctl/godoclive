@@ -18,7 +18,7 @@ budget:
   max_tokens: 400000
 priority: 1
 created: 2026-09-06T12:55:04Z
-updated: 2026-09-06T13:11:32Z
+updated: 2026-09-06T13:12:27Z
 ---
 
 ## Why
@@ -48,3 +48,4 @@ The user explicitly requested implementation of all nine confirmed findings on o
 - 2026-09-06T13:08Z agent/codex-fixes-20260906: Second make ci is green, including race tests, vet and lint; the pinned upstream corpus also passes its new operation-ID uniqueness gate.
 - 2026-09-06T13:10Z agent/codex-fixes-20260906: Go 1.27 race tests also pass; real Action smoke emits both outputs from shared analysis; warm upstream analysis remains about 162 ms with 18.86 MB allocated.
 - 2026-09-06T13:11Z agent/codex-fixes-20260906: in progress on agent/godoclive-rnrffj
+- 2026-09-06T13:12Z agent/codex-fixes-20260906: PR #37 is open with all acceptance items checked and local validation green; auto-merge is unavailable because the repository disables it, so the PR remains open for independent review.
