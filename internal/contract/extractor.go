@@ -96,7 +96,7 @@ func ExtractContract(
 	// Body type will be mapped to a TypeDef by the struct mapper later.
 	// For now, store a reference if we have one.
 	if bodyResult.BodyType != nil {
-		req.Body = typeRefDef(bodyResult.BodyType)
+		req.Body = typeRefDefDeep(bodyResult.BodyType)
 	}
 
 	// 5. Responses.

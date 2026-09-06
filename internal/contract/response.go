@@ -187,7 +187,7 @@ func extractEchoResponses(body *ast.BlockStmt, info *types.Info, pn resolver.Han
 				}
 				bodyType := resolveBodyType(call.Args[1], info)
 				if bodyType != nil {
-					resp.Body = typeRefDef(bodyType)
+					resp.Body = typeRefDefDeep(bodyType)
 				}
 				set.add(resp)
 			}
@@ -317,7 +317,7 @@ func extractFiberResponses(body *ast.BlockStmt, info *types.Info, pn resolver.Ha
 				}
 				if len(call.Args) >= 1 {
 					if bodyType := resolveBodyType(call.Args[0], info); bodyType != nil {
-						resp.Body = typeRefDef(bodyType)
+						resp.Body = typeRefDefDeep(bodyType)
 					}
 				}
 				set.add(resp)
@@ -359,7 +359,7 @@ func extractFiberResponses(body *ast.BlockStmt, info *types.Info, pn resolver.Ha
 			}
 			if len(call.Args) >= 1 {
 				if bodyType := resolveBodyType(call.Args[0], info); bodyType != nil {
-					resp.Body = typeRefDef(bodyType)
+					resp.Body = typeRefDefDeep(bodyType)
 				}
 			}
 			set.add(resp)
@@ -550,7 +550,7 @@ func pairBranchEvents(events []responseEvent) *model.ResponseDef {
 				Description: descriptionForStatus(ev.statusCode),
 			}
 			if ev.bodyType != nil {
-				resp.Body = typeRefDef(ev.bodyType)
+				resp.Body = typeRefDefDeep(ev.bodyType)
 			}
 			return resp
 
@@ -634,7 +634,7 @@ func pairBranchEvents(events []responseEvent) *model.ResponseDef {
 		Description: descriptionForStatus(statusCode),
 	}
 	if bodyType != nil {
-		resp.Body = typeRefDef(bodyType)
+		resp.Body = typeRefDefDeep(bodyType)
 	}
 	return resp
 }
@@ -899,10 +899,9 @@ func typeRefDefDeep(t types.Type) *model.TypeDef {
 		}
 		return def
 	}
+	t = types.Unalias(t)
 	if named, ok := t.(*types.Named); ok {
-		if _, isStruct := named.Underlying().(*types.Struct); isStruct {
-			return typeRefDef(named)
-		}
+		return typeRefDef(named)
 	}
 	switch u := t.Underlying().(type) {
 	case *types.Slice:
@@ -911,6 +910,8 @@ func typeRefDefDeep(t types.Type) *model.TypeDef {
 			return nil
 		}
 		return &model.TypeDef{Kind: model.KindSlice, Elem: elem}
+	case *types.Map:
+		return &model.TypeDef{Kind: model.KindMap, Elem: typeRefDefDeep(u.Elem())}
 	case *types.Basic:
 		return &model.TypeDef{Kind: model.KindPrimitive, Name: u.Name()}
 	case *types.Interface:

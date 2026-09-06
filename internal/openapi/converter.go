@@ -1,6 +1,7 @@
 package openapi
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -93,6 +94,8 @@ func Generate(endpoints []model.EndpointDef, cfg Config) *Document {
 			doc.Paths[path].SetOperation(ep.Method, op)
 		}
 	}
+
+	assignOperationIDs(doc.Paths)
 
 	// Build sorted tags.
 	var tags []Tag
@@ -223,7 +226,7 @@ func mediaTypes(contentType string) []string {
 // convertResponse converts a ResponseDef to an OpenAPI Response.
 // convertResponses converts every response recorded for one status into a
 // single OpenAPI response object. Alternative payloads under the same content
-// type become a oneOf, which is how a schema says "one of these shapes".
+// type become anyOf, because the shapes may overlap.
 func (c *converter) convertResponses(group []model.ResponseDef) *Response {
 	if len(group) == 1 {
 		return c.convertResponse(group[0])
@@ -271,7 +274,7 @@ func (c *converter) convertResponses(group []model.ResponseDef) *Response {
 			resp.Content[ct] = &MediaType{Schema: alts[0]}
 			continue
 		}
-		resp.Content[ct] = &MediaType{Schema: &Schema{OneOf: alts}}
+		resp.Content[ct] = &MediaType{Schema: &Schema{AnyOf: alts}}
 	}
 	return resp
 }
@@ -286,7 +289,8 @@ func schemaKey(s *Schema) string {
 	if s.Ref != "" {
 		return s.Ref
 	}
-	return s.Type + "/" + s.Format + "/" + schemaKey(s.Items)
+	data, _ := json.Marshal(s) // Include properties and constraints in the identity.
+	return string(data)
 }
 
 func (c *converter) convertResponse(r model.ResponseDef) *Response {
@@ -335,7 +339,7 @@ func (c *converter) typeDefToSchema(td *model.TypeDef) *Schema {
 		}
 		return s
 	case model.KindInterface:
-		return &Schema{Type: "object"}
+		return &Schema{} // Unknown JSON may also be a scalar, array or null.
 	default:
 		return &Schema{Type: "object"}
 	}
@@ -476,6 +480,48 @@ func authSchemeToSecurity(scheme model.AuthScheme) (string, *SecurityScheme) {
 			Scheme: string(scheme),
 		}
 	}
+}
+
+// assignOperationIDs preserves readable IDs where possible and resolves collisions
+// over the final operation set, independently of extraction order.
+func assignOperationIDs(paths map[string]*PathItem) {
+	keys := make([]string, 0, len(paths))
+	for path := range paths {
+		keys = append(keys, path)
+	}
+	sort.Strings(keys)
+	used := make(map[string]bool)
+	// Reserve every natural ID so suffixes cannot steal another operation's ID.
+	reserved := make(map[string]bool)
+	for _, item := range paths {
+		for _, op := range pathOperations(item) {
+			if op != nil {
+				reserved[op.OperationID] = true
+			}
+		}
+	}
+	for _, path := range keys {
+		for _, op := range pathOperations(paths[path]) {
+			if op == nil {
+				continue
+			}
+			base := op.OperationID
+			if used[base] {
+				for n := 2; ; n++ {
+					candidate := fmt.Sprintf("%s_%d", base, n)
+					if !used[candidate] && !reserved[candidate] {
+						op.OperationID = candidate
+						break
+					}
+				}
+			}
+			used[op.OperationID] = true
+		}
+	}
+}
+
+func pathOperations(p *PathItem) []*Operation {
+	return []*Operation{p.Get, p.Post, p.Put, p.Delete, p.Patch, p.Head, p.Options, p.Trace}
 }
 
 // toOperationID generates a camelCase operation ID from method and path.

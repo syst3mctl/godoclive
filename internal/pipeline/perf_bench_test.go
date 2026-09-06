@@ -20,8 +20,8 @@ func perfDirs() map[string]string {
 	return dirs
 }
 
-// BenchmarkPerf_LoadVsAnalyze splits the wall clock into the part go/packages
-// owns and the part this analyzer owns. Only the second is ours to improve.
+// BenchmarkPerf_LoadVsAnalyze compares package loading with the full pipeline.
+// Each iteration loads packages; neither sub-benchmark isolates route processing.
 func BenchmarkPerf_LoadVsAnalyze(b *testing.B) {
 	for name, dir := range perfDirs() {
 		b.Run(name+"/Load", func(b *testing.B) {

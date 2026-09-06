@@ -58,7 +58,7 @@ GoDoc Live has no drift problem — it reads the source of truth directly.
 | **Path Params** | Type inference from name heuristics (`{id}` → uuid, `{page}` → integer) and handler body analysis |
 | **Query Params** | Required/optional detection, default values from `DefaultQuery` |
 | **Request Body** | Struct extraction from `json.Decode` / `c.ShouldBindJSON` with full field metadata |
-| **Responses** | Status codes paired with response body types via branch-aware analysis; a status answered with more than one shape keeps both, as a `oneOf` |
+| **Responses** | Status codes paired with response body types via branch-aware analysis; a status answered with more than one shape keeps both, as an `anyOf` |
 | **File Uploads** | Multipart detection from `r.FormFile` / `c.FormFile` |
 | **Helper Tracing** | One-level tracing through `respond()`, `writeJSON()`, `sendError()` wrappers |
 | **Cookies** | `r.Cookie` / `c.Cookie` / `c.Cookies` → OpenAPI `in: cookie` parameters |
@@ -515,6 +515,11 @@ change is 4.1–4.7× faster and performs about 100× fewer allocations. The rep
 memory allocated during one analysis; it is not retained after the call.
 
 ### Documentation generation
+
+The generator benchmarks measure repeated writes to one output directory, as in
+watch mode. Fixture loading, temporary-directory setup and cleanup are outside
+the timed region. Pipeline benchmarks reload packages each iteration; a warm
+Go build cache does not mean analyzed packages are retained between calls.
 
 | Benchmark | Endpoints | Time | Memory |
 |-----------|-----------|------|--------|

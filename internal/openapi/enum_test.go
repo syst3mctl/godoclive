@@ -76,7 +76,7 @@ func TestApplyConstraintsIgnoresEmpty(t *testing.T) {
 
 // OpenAPI has one response object per status, so alternative payloads have to
 // be merged into it rather than overwriting one another.
-func TestResponsesMergeAlternativesIntoOneOf(t *testing.T) {
+func TestResponsesMergeAlternativesIntoAnyOf(t *testing.T) {
 	article := &model.TypeDef{Kind: model.KindStruct, Name: "Article", Package: "example.com/api",
 		Fields: []model.FieldDef{{Name: "ID", JSONName: "id", Type: model.TypeDef{Kind: model.KindPrimitive, Name: "string"}}}}
 	summary := &model.TypeDef{Kind: model.KindStruct, Name: "ArticleSummary", Package: "example.com/api",
@@ -95,20 +95,20 @@ func TestResponsesMergeAlternativesIntoOneOf(t *testing.T) {
 	if media == nil || media.Schema == nil {
 		t.Fatalf("no schema: %+v", op.Responses["200"])
 	}
-	if len(media.Schema.OneOf) != 2 {
-		t.Fatalf("schema = %+v, want a oneOf of two", media.Schema)
+	if len(media.Schema.AnyOf) != 2 {
+		t.Fatalf("schema = %+v, want an anyOf of two", media.Schema)
 	}
 	if media.Schema.Ref != "" {
 		t.Errorf("a merged schema must not also be a $ref: %q", media.Schema.Ref)
 	}
-	for i, alt := range media.Schema.OneOf {
+	for i, alt := range media.Schema.AnyOf {
 		if alt.Ref == "" {
-			t.Errorf("oneOf[%d] = %+v, want a $ref", i, alt)
+			t.Errorf("anyOf[%d] = %+v, want a $ref", i, alt)
 		}
 	}
 }
 
-// A status with one payload keeps the plain schema; a oneOf of one would be
+// A status with one payload keeps the plain schema; an anyOf of one would be
 // noise in every spec that has no alternatives.
 func TestResponsesKeepASingleShapePlain(t *testing.T) {
 	article := &model.TypeDef{Kind: model.KindStruct, Name: "Article", Package: "example.com/api",
@@ -125,8 +125,8 @@ func TestResponsesKeepASingleShapePlain(t *testing.T) {
 	if media == nil || media.Schema == nil {
 		t.Fatal("no schema")
 	}
-	if len(media.Schema.OneOf) != 0 {
-		t.Errorf("single shape wrapped in oneOf: %+v", media.Schema)
+	if len(media.Schema.AnyOf) != 0 {
+		t.Errorf("single shape wrapped in anyOf: %+v", media.Schema)
 	}
 	if media.Schema.Ref == "" {
 		t.Errorf("schema = %+v, want a $ref", media.Schema)

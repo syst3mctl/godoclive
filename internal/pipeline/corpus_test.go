@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/syst3mctl/godoclive/internal/model"
+	"github.com/syst3mctl/godoclive/internal/openapi"
 	"github.com/syst3mctl/godoclive/internal/pipeline"
 )
 
@@ -175,6 +176,22 @@ func assertSameSet(t *testing.T, label string, got, want []string) {
 // gate can never pass on the reduction while failing on the real thing.
 func checkCorpusGates(t *testing.T, endpoints []model.EndpointDef) {
 	t.Helper()
+
+	// The upstream route table has distinct slash/no-slash operations. Validate
+	// the generated document too, so preserving routes cannot hide duplicate IDs.
+	doc := openapi.Generate(endpoints, openapi.Config{})
+	seenIDs := make(map[string]bool)
+	for _, item := range doc.Paths {
+		for _, op := range []*openapi.Operation{item.Get, item.Post, item.Put, item.Delete, item.Patch, item.Head, item.Options, item.Trace} {
+			if op == nil {
+				continue
+			}
+			if op.OperationID == "" || seenIDs[op.OperationID] {
+				t.Errorf("duplicate or empty operation ID: %q", op.OperationID)
+			}
+			seenIDs[op.OperationID] = true
+		}
+	}
 
 	if len(endpoints) != corpusWantEndpoints {
 		t.Errorf("endpoint count = %d, want %d", len(endpoints), corpusWantEndpoints)

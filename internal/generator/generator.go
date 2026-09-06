@@ -4,10 +4,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/syst3mctl/godoclive/internal/model"
 )
@@ -432,12 +434,14 @@ func generateSingle(outputDir string, apiJSON []byte, theme string) error {
 	html = strings.Replace(html, `<link rel="stylesheet" href="style.css">`,
 		"<style>\n"+css+"\n</style>", 1)
 
+	// Assign data before the inline application executes.
+	html = injectAPIData(html, apiJSON)
+
 	// Inline JS.
 	html = strings.Replace(html, `<script src="app.js"></script>`,
 		"<script>\n"+string(GetJS())+"\n</script>", 1)
 
-	// Inject API data and theme.
-	html = injectAPIData(html, apiJSON)
+	// Inject theme.
 	html = injectTheme(html, theme)
 
 	if err := os.WriteFile(filepath.Join(outputDir, "index.html"), []byte(html), 0o644); err != nil {
@@ -516,38 +520,89 @@ func Serve(dir, addr string) error {
 // ServeWithSSE starts an HTTP server with an SSE /events endpoint for live reload.
 // The returned channel can be used to push reload events.
 func ServeWithSSE(dir, addr string) (chan struct{}, error) {
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
 	reloadCh := make(chan struct{}, 1)
-
+	hub := &reloadHub{clients: make(map[chan struct{}]struct{})}
 	mux := http.NewServeMux()
 	mux.Handle("/", http.FileServer(http.Dir(dir)))
-	mux.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
-		flusher, ok := w.(http.Flusher)
-		if !ok {
-			http.Error(w, "streaming not supported", http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-
+	mux.Handle("/events", hub)
+	done := make(chan struct{})
+	go func() {
 		for {
 			select {
-			case <-reloadCh:
-				_, _ = fmt.Fprintf(w, "event: reload\ndata: {}\n\n")
-				flusher.Flush()
-			case <-r.Context().Done():
+			case _, ok := <-reloadCh:
+				if !ok {
+					return
+				}
+				hub.broadcast()
+			case <-done:
 				return
 			}
 		}
-	})
-
+	}()
 	go func() {
-		fmt.Printf("Serving docs at http://localhost%s\n", addr)
-		if err := http.ListenAndServe(addr, mux); err != nil {
+		defer close(done)
+		fmt.Printf("Serving docs at http://%s\n", listener.Addr())
+		if err := http.Serve(listener, mux); err != nil {
 			fmt.Fprintf(os.Stderr, "server error: %v\n", err)
 		}
 	}()
-
 	return reloadCh, nil
+}
+
+// reloadHub gives each connected browser its own pending reload notification.
+// A slow client can coalesce reloads without delaying any other client.
+type reloadHub struct {
+	mu      sync.Mutex
+	clients map[chan struct{}]struct{}
+}
+
+func (h *reloadHub) broadcast() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for ch := range h.clients {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func (h *reloadHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+	ch := make(chan struct{}, 1)
+	h.mu.Lock()
+	h.clients[ch] = struct{}{}
+	h.mu.Unlock()
+	defer func() {
+		h.mu.Lock()
+		delete(h.clients, ch)
+		h.mu.Unlock()
+	}()
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	if _, err := fmt.Fprint(w, ": connected\n\n"); err != nil {
+		return
+	}
+	flusher.Flush()
+	for {
+		select {
+		case <-ch:
+			if _, err := fmt.Fprint(w, "event: reload\ndata: {}\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
+		case <-r.Context().Done():
+			return
+		}
+	}
 }

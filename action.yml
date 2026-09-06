@@ -102,16 +102,21 @@ runs:
 
     - name: Report analysis coverage
       id: validate
+      env:
+        GODOCLIVE_PACKAGES: ${{ inputs.packages }}
+        GODOCLIVE_MIN_COVERAGE: ${{ inputs.min-coverage }}
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       run: |
         set -euo pipefail
-        godoclive validate --json "${{ inputs.packages }}" > /tmp/godoclive-validate.json
-        godoclive validate "${{ inputs.packages }}"
+        report=$(mktemp)
+        trap 'rm -f "$report"' EXIT
+        godoclive validate --json "$GODOCLIVE_PACKAGES" > "$report"
+        jq -r '"GoDoc Live — Analysis Coverage Report", "Total endpoints: \(.total)", "Fully resolved: \(.resolved)", "Partially resolved: \(.partial)", "Coverage: \(.coverage)%", (.endpoints[]? | . as $ep | .unresolved[]? | "  \($ep.method) \($ep.path) -> \(.)")' "$report"
 
-        coverage=$(jq -r '.coverage' /tmp/godoclive-validate.json)
-        total=$(jq -r '.total' /tmp/godoclive-validate.json)
-        partial=$(jq -r '.partial' /tmp/godoclive-validate.json)
+        coverage=$(jq -r '.coverage' "$report")
+        total=$(jq -r '.total' "$report")
+        partial=$(jq -r '.partial' "$report")
         {
           echo "coverage=$coverage"
           echo "endpoints=$total"
@@ -126,7 +131,7 @@ runs:
           echo "| $total | $((total - partial)) | ${coverage}% |"
         } >> "$GITHUB_STEP_SUMMARY"
 
-        min="${{ inputs.min-coverage }}"
+        min="$GODOCLIVE_MIN_COVERAGE"
         if [ -n "$min" ]; then
           # Endpoints the analyzer could not fully resolve are documented with
           # gaps. Gating on coverage keeps a refactor that hides routes from
@@ -137,23 +142,31 @@ runs:
           fi
         fi
 
-    - name: Generate OpenAPI spec
+    - name: Generate documentation outputs
       id: spec
-      if: inputs.openapi != ''
+      if: inputs.openapi != '' || inputs.docs != ''
+      env:
+        GODOCLIVE_PACKAGES: ${{ inputs.packages }}
+        GODOCLIVE_DOCS: ${{ inputs.docs }}
+        GODOCLIVE_DOCS_FORMAT: ${{ inputs.docs-format }}
+        GODOCLIVE_OPENAPI: ${{ inputs.openapi }}
+        GODOCLIVE_WORKING_DIRECTORY: ${{ inputs.working-directory }}
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       run: |
         set -euo pipefail
-        godoclive openapi --output "${{ inputs.openapi }}" "${{ inputs.packages }}"
-        echo "path=${{ inputs.working-directory }}/${{ inputs.openapi }}" >> "$GITHUB_OUTPUT"
-
-    - name: Generate documentation site
-      if: inputs.docs != ''
-      shell: bash
-      working-directory: ${{ inputs.working-directory }}
-      run: |
-        set -euo pipefail
-        godoclive generate --output "${{ inputs.docs }}" --format "${{ inputs.docs-format }}" "${{ inputs.packages }}"
+        if [ -n "$GODOCLIVE_DOCS" ]; then
+          args=(generate --output "$GODOCLIVE_DOCS" --format "$GODOCLIVE_DOCS_FORMAT")
+          if [ -n "$GODOCLIVE_OPENAPI" ]; then
+            args+=(--openapi "$GODOCLIVE_OPENAPI")
+          fi
+          godoclive "${args[@]}" "$GODOCLIVE_PACKAGES"
+        elif [ -n "$GODOCLIVE_OPENAPI" ]; then
+          godoclive openapi --output "$GODOCLIVE_OPENAPI" "$GODOCLIVE_PACKAGES"
+        fi
+        if [ -n "$GODOCLIVE_OPENAPI" ]; then
+          echo "path=$GODOCLIVE_WORKING_DIRECTORY/$GODOCLIVE_OPENAPI" >> "$GITHUB_OUTPUT"
+        fi
 
     - name: Check for breaking API changes
       id: breaking
