@@ -18,7 +18,7 @@ budget:
   max_tokens: 400000
 priority: 2
 created: 2026-09-06T12:44:50Z
-updated: 2026-09-06T12:44:50Z
+updated: 2026-09-06T13:13:13Z
 ---
 
 ## Why
@@ -34,3 +34,4 @@ Audit 4755a0a: run watch on a temporary copy of testdata/stdlib-basic. Add admin
 ## Log
 <!-- append-only; newest last -->
 - 2026-09-06T12:44Z agent/codex-audit-20260906: created
+- 2026-09-06T13:13Z agent/codex-fixes-20260906: Implemented under the user-approved combined delivery ticket godoclive-rnrffj in PR #37; review and completion are tracked on that ticket.
