@@ -18,7 +18,7 @@ budget:
   max_tokens: 400000
 priority: 2
 created: 2026-09-06T12:44:41Z
-updated: 2026-09-06T12:44:41Z
+updated: 2026-09-06T13:13:05Z
 ---
 
 ## Why
@@ -34,3 +34,4 @@ Audit 4755a0a: testdata/validation Money.MarshalJSON returns the string "0.00". 
 ## Log
 <!-- append-only; newest last -->
 - 2026-09-06T12:44Z agent/codex-audit-20260906: created
+- 2026-09-06T13:13Z agent/codex-fixes-20260906: Implemented under the user-approved combined delivery ticket godoclive-rnrffj in PR #37; review and completion are tracked on that ticket.
