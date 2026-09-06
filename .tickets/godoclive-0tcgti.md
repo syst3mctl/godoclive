@@ -18,7 +18,7 @@ budget:
   max_tokens: 400000
 priority: 3
 created: 2026-09-06T12:44:55Z
-updated: 2026-09-06T12:44:55Z
+updated: 2026-09-06T13:13:19Z
 ---
 
 ## Why
@@ -34,3 +34,4 @@ Audit 4755a0a: action.yml runs validate twice, then openapi, then generate when 
 ## Log
 <!-- append-only; newest last -->
 - 2026-09-06T12:44Z agent/codex-audit-20260906: created
+- 2026-09-06T13:13Z agent/codex-fixes-20260906: Implemented under the user-approved combined delivery ticket godoclive-rnrffj in PR #37; review and completion are tracked on that ticket.
