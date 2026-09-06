@@ -2,14 +2,14 @@
 id: godoclive-rnrffj
 title: Deliver the approved September audit corrections in one PR
 project: godoclive
-state: claimed
+state: in_progress
 kind: fix
 parent: null
 spawned_by: agent/codex-fixes-20260906
 approved_by: nicolas
 claimed_by: agent/codex-fixes-20260906
 lease_until: 2026-09-06T14:25:24Z
-branch: null
+branch: agent/godoclive-rnrffj
 pr: null
 depends_on: []
 budget:
@@ -18,7 +18,7 @@ budget:
   max_tokens: 400000
 priority: 1
 created: 2026-09-06T12:55:04Z
-updated: 2026-09-06T13:10:49Z
+updated: 2026-09-06T13:11:32Z
 ---
 
 ## Why
@@ -47,3 +47,4 @@ The user explicitly requested implementation of all nine confirmed findings on o
 - 2026-09-06T13:07Z agent/codex-fixes-20260906: First make ci passes race tests and vet; lint identifies three unchecked test cleanup calls, now corrected before the second CI run.
 - 2026-09-06T13:08Z agent/codex-fixes-20260906: Second make ci is green, including race tests, vet and lint; the pinned upstream corpus also passes its new operation-ID uniqueness gate.
 - 2026-09-06T13:10Z agent/codex-fixes-20260906: Go 1.27 race tests also pass; real Action smoke emits both outputs from shared analysis; warm upstream analysis remains about 162 ms with 18.86 MB allocated.
+- 2026-09-06T13:11Z agent/codex-fixes-20260906: in progress on agent/godoclive-rnrffj
