@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,7 +10,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"syscall"
 	"text/tabwriter"
 	"time"
@@ -671,54 +671,72 @@ func runWatch(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Watching %s for changes...\n", dir)
 
-	// Debounce timer.
-	var mu sync.Mutex
-	var timer *time.Timer
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	return watchChanges(ctx, watcher, 500*time.Millisecond, func() {
+		doGenerate()
+		if reloadCh != nil {
+			select {
+			case reloadCh <- struct{}{}:
+			default:
+			}
+		}
+	})
+}
 
-	triggerRegenerate := func() {
-		mu.Lock()
-		defer mu.Unlock()
+// watchChanges serializes regeneration and discovers new package directories.
+func watchChanges(ctx context.Context, watcher *fsnotify.Watcher, debounce time.Duration, regenerate func()) error {
+	var timer *time.Timer
+	var timerCh <-chan time.Time
+	defer func() {
 		if timer != nil {
 			timer.Stop()
 		}
-		timer = time.AfterFunc(500*time.Millisecond, func() {
-			doGenerate()
-			if reloadCh != nil {
-				select {
-				case reloadCh <- struct{}{}:
-				default:
-				}
-			}
-		})
-	}
-
-	// Signal handling.
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
+	}()
 	for {
 		select {
 		case event, ok := <-watcher.Events:
 			if !ok {
 				return nil
 			}
-			if strings.HasSuffix(event.Name, ".go") &&
-				(event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Remove)) != 0 {
-				triggerRegenerate()
+			changed := strings.HasSuffix(event.Name, ".go") &&
+				event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Remove|fsnotify.Rename) != 0
+			if event.Op&fsnotify.Create != 0 {
+				if info, err := os.Stat(event.Name); err == nil && info.IsDir() && !skipWatchDir(info.Name()) {
+					if err := addWatchDirs(watcher, event.Name); err != nil {
+						return fmt.Errorf("watching new directory: %w", err)
+					}
+					// Files may already exist by the time the new directory is watched.
+					changed = true
+				}
 			}
+			if changed {
+				if timer == nil {
+					timer = time.NewTimer(debounce)
+				} else {
+					timer.Reset(debounce)
+				}
+				timerCh = timer.C
+			}
+		case <-timerCh:
+			timerCh = nil
+			regenerate()
 		case err, ok := <-watcher.Errors:
 			if !ok {
 				return nil
 			}
 			fmt.Fprintf(os.Stderr, "watcher error: %v\n", err)
-		case <-sigCh:
-			fmt.Println("\nShutting down.")
+		case <-ctx.Done():
 			return nil
 		}
 	}
 }
 
-// addWatchDirs recursively adds directories containing .go files to the watcher.
+func skipWatchDir(name string) bool {
+	return strings.HasPrefix(name, ".") || name == "vendor" || name == "node_modules"
+}
+
+// addWatchDirs recursively watches directories, including ones where Go files may appear.
 func addWatchDirs(watcher *fsnotify.Watcher, root string) error {
 	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -726,8 +744,8 @@ func addWatchDirs(watcher *fsnotify.Watcher, root string) error {
 		}
 		if info.IsDir() {
 			name := info.Name()
-			// Skip hidden dirs, vendor, testdata, .git.
-			if strings.HasPrefix(name, ".") || name == "vendor" || name == "node_modules" {
+			// Skip hidden directories and dependency trees.
+			if skipWatchDir(name) {
 				return filepath.SkipDir
 			}
 			return watcher.Add(path)

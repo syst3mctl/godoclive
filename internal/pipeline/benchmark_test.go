@@ -62,9 +62,9 @@ func BenchmarkRunPipeline_GorillaBasic(b *testing.B) {
 	}
 }
 
-// BenchmarkRunPipeline_LoadVsProcess isolates package loading from route processing
-// by loading packages once, then measuring just the pipeline phases that follow.
-func BenchmarkRunPipeline_LoadVsProcess(b *testing.B) {
+// BenchmarkRunPipeline_WarmCache compares loading with the full pipeline. Both
+// reload packages on every iteration; no loaded AST or type information is reused.
+func BenchmarkRunPipeline_WarmCache(b *testing.B) {
 	dir := testdataDir("chi-basic")
 
 	b.Run("Load", func(b *testing.B) {
@@ -79,7 +79,7 @@ func BenchmarkRunPipeline_LoadVsProcess(b *testing.B) {
 		}
 	})
 
-	b.Run("PipelineFromCache", func(b *testing.B) {
+	b.Run("FullPipeline", func(b *testing.B) {
 		// Warm up the module cache with one load, then benchmark the full pipeline.
 		// The OS page cache and Go build cache mean subsequent loads are much cheaper.
 		_, err := loader.LoadPackages(dir, "./...")

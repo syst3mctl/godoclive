@@ -186,6 +186,9 @@ func processRoute(route extractor.RawRoute, pkgs []*packages.Package, typeIdx ty
 			if mapped != nil {
 				responses[i].Body = mapped
 			}
+			if unresolvedType(responses[i].Body) {
+				unresolved = append(unresolved, fmt.Sprintf("response body: could not resolve schema for status %d", resp.StatusCode))
+			}
 		}
 	}
 
@@ -299,12 +302,14 @@ func resolveAndMapType(td *model.TypeDef, info *types.Info, pkg *packages.Packag
 		return &out
 	}
 
-	if td.Kind == model.KindSlice && td.Elem != nil {
+	if (td.Kind == model.KindSlice || td.Kind == model.KindMap) && td.Elem != nil {
 		elem := resolveAndMapType(td.Elem, info, pkg, typeIdx)
 		if elem == nil {
 			return nil
 		}
-		return &model.TypeDef{Kind: model.KindSlice, Elem: elem, IsPointer: td.IsPointer}
+		out := *td
+		out.Elem = elem
+		return &out
 	}
 
 	// Already-concrete leaves carry no name to look up.
@@ -320,6 +325,25 @@ func resolveAndMapType(td *model.TypeDef, info *types.Info, pkg *packages.Packag
 	mapped := mapper.MapType(t, pkg)
 	mapped.IsPointer = mapped.IsPointer || td.IsPointer
 	return &mapped
+}
+
+// unresolvedType reports type references left unexpanded after mapping.
+func unresolvedType(td *model.TypeDef) bool {
+	if td == nil {
+		return false
+	}
+	if td.Kind == "" || td.Kind == model.KindUnknown {
+		return true
+	}
+	if unresolvedType(td.Elem) {
+		return true
+	}
+	for _, f := range td.Fields {
+		if unresolvedType(&f.Type) {
+			return true
+		}
+	}
+	return false
 }
 
 // typeIndex resolves a named type from the type-checked package graph.

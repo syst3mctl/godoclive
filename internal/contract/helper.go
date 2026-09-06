@@ -252,7 +252,7 @@ func extractGinResponsesFromHelper(body *ast.BlockStmt, info *types.Info, helper
 				}
 				bodyType := resolveBodyType(call.Args[1], info)
 				if bodyType != nil {
-					resp.Body = typeRefDef(bodyType)
+					resp.Body = typeRefDefDeep(bodyType)
 				}
 				responses = append(responses, resp)
 			}

@@ -55,6 +55,10 @@ Tests run the full pipeline against these projects and assert on the resulting `
 
 ## Running Tests
 
+Run `make ci` before opening a PR. It requires Go, Node.js, jq, and
+golangci-lint; the JavaScript and Action regressions execute their real startup
+and shell code. The JSON Schema validator is imported by tests only.
+
 ```bash
 # All tests
 go test ./...
@@ -86,6 +90,7 @@ database and JWT layers.
 `checkCorpusGates` in `internal/pipeline/corpus_test.go` holds analysis to the
 counts derived by hand from that route table: **27 routes, 16 requiring
 authentication, 10 request bodies, no OpenAPI collisions, nothing unresolved**.
+Generated OpenAPI operation IDs must also be unique.
 It runs on every PR as part of `go test ./...`.
 
 The same gates run against the real upstream repository at a pinned commit,
