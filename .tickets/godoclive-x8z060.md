@@ -18,7 +18,7 @@ budget:
   max_tokens: 400000
 priority: 1
 created: 2026-09-06T12:44:44Z
-updated: 2026-09-06T12:44:44Z
+updated: 2026-09-06T13:13:08Z
 ---
 
 ## Why
@@ -34,3 +34,4 @@ Audit 4755a0a of pinned gothinkster/golang-gin-realworld-example-app commit 626c
 ## Log
 <!-- append-only; newest last -->
 - 2026-09-06T12:44Z agent/codex-audit-20260906: created
+- 2026-09-06T13:13Z agent/codex-fixes-20260906: Implemented under the user-approved combined delivery ticket godoclive-rnrffj in PR #37; review and completion are tracked on that ticket.
