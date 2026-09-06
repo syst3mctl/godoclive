@@ -18,7 +18,7 @@ budget:
   max_tokens: 400000
 priority: 1
 created: 2026-09-06T12:43:24Z
-updated: 2026-09-06T12:43:24Z
+updated: 2026-09-06T13:12:44Z
 ---
 
 ## Why
@@ -34,3 +34,4 @@ Audit of 4755a0a: generate --format single on testdata/chi-basic selects the emb
 ## Log
 <!-- append-only; newest last -->
 - 2026-09-06T12:43Z agent/codex-audit-20260906: created
+- 2026-09-06T13:12Z agent/codex-fixes-20260906: Implemented under the user-approved combined delivery ticket godoclive-rnrffj in PR #37; review and completion are tracked on that ticket.
